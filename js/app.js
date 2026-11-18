@@ -795,7 +795,7 @@ $('#cat-add').addEventListener('click', () => {
   else toast('Categoria vazia ou já existe.');
 });
 $('#backup-export').addEventListener('click', () => {
-  download(`financas-backup-${iso(new Date())}.json`, store.exportJson(), 'application/json');
+  download(`mimimei-backup-${iso(new Date())}.json`, store.exportJson(), 'application/json');
 });
 $('#backup-import').addEventListener('change', async (e) => {
   const f = e.target.files[0];
@@ -814,7 +814,7 @@ $('#csv-export').addEventListener('click', () => {
     fmtDate(t.date), t.type, t.amount.toFixed(2).replace('.', ','), t.description, t.place, t.category,
     store.groupOf(t.category), t.paidBy, t.payment, sourceName(t.source), t.nf?.chave || '', t.note,
   ].map(cell).join(';'));
-  download(`financas-${iso(new Date())}.csv`, `﻿${head.map(cell).join(';')}\n${lines.join('\n')}`, 'text/csv');
+  download(`mimimei-${iso(new Date())}.csv`, `﻿${head.map(cell).join(';')}\n${lines.join('\n')}`, 'text/csv');
 });
 $('#wipe').addEventListener('click', () => {
   if (confirm('Apagar TODOS os lançamentos deste aparelho? Faça um backup antes.') && confirm('Tem certeza? Não dá para desfazer.')) {

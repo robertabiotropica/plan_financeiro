@@ -2,6 +2,7 @@
 
 import { normalizeText } from './parsers.js';
 
+// Chave mantida do nome antigo para não perder dados já salvos nos aparelhos.
 const KEY = 'nossas-financas-v1';
 
 export const GROUPS = ['Contas apê', 'Mercado', 'Outras compras', 'Entradas'];

@@ -1,4 +1,4 @@
-# Nossas Finanças
+# MiMimei
 
 App web simples para o planejamento financeiro de Robs e Lari: substitui a planilha
 “Planejamento Financeiro (Robs e Lari)” por uma página de entrada de dados e um painel.

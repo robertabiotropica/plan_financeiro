@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Nossas Finanças</title>
-  <meta name="description" content="Planejamento financeiro de Robs e Lari: lançamentos, notas fiscais, extratos e painel por período.">
-  <meta name="theme-color" content="#2a78d6">
+  <title>MiMimei</title>
+  <meta name="description" content="MiMimei — finanças de Robs e Lari: lançamentos, notas fiscais, extratos e painel por período.">
+  <meta name="theme-color" content="#1e6b34">
+  <meta name="apple-mobile-web-app-title" content="MiMimei">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
@@ -13,7 +14,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Nossas Finanças</h1>
+    <h1><img src="icon.svg" alt=""><span>MiMimei<span class="dot">.</span></span></h1>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="painel" role="tab">📊 <span>Painel</span></button>
       <button class="tab" data-tab="lancar" role="tab">➕ <span>Lançar</span></button>
@@ -45,9 +46,9 @@
       </div>
 
       <div class="kpis">
-        <div class="kpi"><span>Entradas</span><strong id="kpi-in"></strong></div>
-        <div class="kpi"><span>Gastos</span><strong id="kpi-out"></strong></div>
-        <div class="kpi"><span>Saldo</span><strong id="kpi-bal"></strong></div>
+        <div class="kpi k-in"><span>Entradas</span><strong id="kpi-in"></strong></div>
+        <div class="kpi k-out"><span>Gastos</span><strong id="kpi-out"></strong></div>
+        <div class="kpi k-bal"><span>Saldo</span><strong id="kpi-bal"></strong></div>
       </div>
 
       <div class="card">
