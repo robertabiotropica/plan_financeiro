@@ -1116,8 +1116,12 @@ store.onChange(() => {
 });
 
 function fixHouseSplit() {
+  const removed = store.trimPlanilhaBefore('2026-07-01');
   const n = store.migrateHouseSplit(SPLIT, HOUSE);
-  if (n) toast(`${n} contas do apê corrigidas para “${HOUSE}” (÷${store.houseSize}).`);
+  const msgs = [];
+  if (removed) msgs.push(`${removed} lançamentos da planilha anteriores a julho removidos`);
+  if (n) msgs.push(`${n} contas do apê corrigidas para “${HOUSE}” (÷${store.houseSize})`);
+  if (msgs.length) toast(`${msgs.join(' · ')}.`);
 }
 if (store.backendKind === 'local') fixHouseSplit();
 resetForm();

@@ -175,6 +175,20 @@ export const store = {
    * Correção única: contas do apê importadas da planilha estavam como “Dividido 50/50”,
    * mas são divididas com a casa toda. Roda uma vez por conta/aparelho.
    */
+  /**
+   * Correção única: os dados da planilha passam a valer só a partir de julho/2026.
+   * Remove apenas lançamentos com origem “planilha” anteriores a essa data.
+   */
+  trimPlanilhaBefore(start = '2026-07-01') {
+    if (state.migrations?.planilhaDesdeJulho || !state.transactions.length) return 0;
+    const gone = state.transactions.filter((t) => t.source === 'planilha' && t.date < start);
+    state.transactions = state.transactions.filter((t) => !gone.includes(t));
+    gone.forEach((t) => backend.deleteTx(t.id));
+    state.migrations = { ...(state.migrations || {}), planilhaDesdeJulho: true };
+    backend.saveSettings(this.settings());
+    if (gone.length) emit();
+    return gone.length;
+  },
   migrateHouseSplit(SPLIT, HOUSE) {
     if (state.migrations?.casaDividida || !state.transactions.length) return 0;
     const fix = state.transactions.filter((t) => t.source === 'planilha' && t.paidBy === SPLIT
