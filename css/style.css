@@ -344,3 +344,7 @@ tr.settled td { opacity: .6; }
   #fat-table .settle { margin-top: 0; white-space: nowrap; }
   #fat-table tr td.empty, #imp-table tr td.empty { grid-column: 1 / -1; }
 }
+
+.card-picker { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.card-picker .grow { flex: 1 1 150px; min-width: 0; }
+.card-picker select { font-weight: 600; }

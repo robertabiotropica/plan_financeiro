@@ -123,6 +123,7 @@
           <label>Categoria<select name="category"></select></label>
           <label><span id="paidby-label">Pago por</span><select name="paidBy"></select></label>
           <label>Forma de pagamento<select name="payment"></select></label>
+          <label class="hidden" id="tx-card-wrap">Cartão<select name="card"></select></label>
           <label>Observação<input type="text" name="note"></label>
         </div>
         <div id="nf-attached" class="nf-attached hidden"></div>
@@ -139,6 +140,25 @@
 
     <!-- CARTÃO -->
     <section id="tab-cartao" class="panel">
+      <div class="card-picker">
+        <label class="grow">Cartão<select id="card-select"></select></label>
+        <button class="btn" id="card-edit-btn" type="button" title="Editar este cartão">✏️</button>
+        <button class="btn primary" id="card-new-btn" type="button" title="Cadastrar novo cartão">+ Novo</button>
+      </div>
+      <form class="card hidden" id="card-config" autocomplete="off">
+        <h2 id="card-config-title">Novo cartão</h2>
+        <div class="grid">
+          <label class="span2">Nome do cartão / banco<input type="text" name="name" placeholder="Ex.: Nubank, Itaú, Inter" required></label>
+          <label>De quem é o cartão<select name="owner"></select></label>
+          <label>Dia de fechamento<input type="number" name="closingDay" min="1" max="28" value="10" inputmode="numeric" required></label>
+        </div>
+        <p class="hint">Compras até o dia de fechamento entram na fatura daquele mês; depois, na do mês seguinte.</p>
+        <div class="btn-row">
+          <button type="submit" class="btn primary">Salvar cartão</button>
+          <button type="button" class="btn" id="card-config-cancel">Cancelar</button>
+          <button type="button" class="btn danger hidden" id="card-config-remove">Excluir cartão</button>
+        </div>
+      </form>
       <div class="period-bar">
         <div class="period-nav card-nav">
           <button class="icon-btn" id="fat-prev" aria-label="Fatura anterior">‹</button>
@@ -206,6 +226,7 @@
           <button type="button" data-kind="cartao">Fatura do cartão</button>
         </div>
         <div class="grid">
+          <label class="hidden" id="imp-card-wrap">Qual cartão<select id="imp-card"></select></label>
           <label>Conta / cartão<input type="text" id="imp-account" placeholder="Ex.: Nubank Robs"></label>
           <label>Pago por (padrão)<select id="imp-paidby"></select></label>
           <label>Forma de pagamento (padrão)<select id="imp-payment"></select></label>
@@ -257,12 +278,8 @@
         <p class="hint" style="margin:6px 0 0">Usado na opção “Dividido com a casa”: só a parte de vocês entra nos totais.</p>
       </div>
       <div class="card">
-        <h2>Cartão de crédito</h2>
-        <div class="grid">
-          <label>Dona/dono do cartão<select id="card-owner"></select></label>
-          <label>Dia de fechamento da fatura<input type="number" id="card-closing" min="1" max="28" inputmode="numeric"></label>
-        </div>
-        <p class="hint" style="margin:0">Compras até o dia de fechamento entram na fatura daquele mês; depois disso, na do mês seguinte. Gastos com forma de pagamento “Crédito” aparecem na aba Cartão.</p>
+        <h2>Cartões de crédito</h2>
+        <p class="hint" style="margin:0">Os cartões (nome, de quem é e dia de fechamento) são cadastrados e editados na aba <b>💳 Cartão</b>.</p>
       </div>
       <div class="card">
         <h2>Categorias</h2>

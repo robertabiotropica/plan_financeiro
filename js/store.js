@@ -61,8 +61,8 @@ function emptyState() {
     houseSize: 3,
     // correções de dados já aplicadas
     migrations: {},
-    // cartão de crédito acompanhado na aba Cartão
-    card: { owner: 'Lari', closingDay: 10 },
+    // cartões de crédito acompanhados na aba Cartão: { id, name, owner, closingDay }
+    cards: [{ id: 'cartao', name: 'Cartão Lari', owner: 'Lari', closingDay: 10 }],
   };
 }
 
@@ -148,22 +148,54 @@ export const store = {
   settings() {
     return {
       people: state.people, categories: state.categories, memory: state.memory, merchants: state.merchants,
-      houseSize: state.houseSize || 3, migrations: state.migrations || {}, card: this.card,
+      houseSize: state.houseSize || 3, migrations: state.migrations || {}, cards: this.cards,
     };
   },
   defaultSettings() {
     const e = emptyState();
-    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {}, card: e.card };
+    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {}, cards: e.cards };
   },
-  get card() {
-    const c = state.card || {};
-    const owner = state.people.includes(c.owner) ? c.owner : state.people[1];
-    return { owner, closingDay: Math.min(28, Math.max(1, Number(c.closingDay) || 10)) };
+  /** Cartões cadastrados (o primeiro é o padrão para gastos antigos no “Crédito”). */
+  get cards() {
+    let list = Array.isArray(state.cards) && state.cards.length ? state.cards : null;
+    if (!list) {
+      // versão antiga guardava um único cartão em state.card
+      const c = state.card || {};
+      list = [{ id: 'cartao', name: `Cartão ${c.owner || state.people[1]}`, owner: c.owner, closingDay: c.closingDay }];
+    }
+    return list.map((c) => {
+      const owner = state.people.includes(c.owner) ? c.owner : state.people[1];
+      return {
+        id: c.id,
+        name: (c.name || '').trim() || `Cartão ${owner}`,
+        owner,
+        closingDay: Math.min(28, Math.max(1, Number(c.closingDay) || 10)),
+      };
+    });
   },
-  setCard(patch) {
-    state.card = { ...this.card, ...patch };
+  saveCards(list) {
+    state.cards = list;
     backend.saveSettings(this.settings());
     emit();
+  },
+  addCard({ name, owner, closingDay }) {
+    const id = `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    this.saveCards([...this.cards, { id, name, owner, closingDay }]);
+    return id;
+  },
+  updateCard(id, patch) {
+    this.saveCards(this.cards.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  },
+  removeCard(id) {
+    this.saveCards(this.cards.filter((c) => c.id !== id));
+  },
+  /** Cartão de um gasto: o marcado nele, ou o primeiro cartão se for “Crédito” sem cartão. */
+  cardOf(t) {
+    if (!t || t.type !== 'gasto') return null;
+    const cards = this.cards;
+    if (t.card) return cards.find((c) => c.id === t.card) || null;
+    if (t.payment === 'Crédito') return cards[0] || null;
+    return null;
   },
   get houseSize() { return Math.max(2, Number(state.houseSize) || 3); },
   setHouseSize(n) {
