@@ -146,7 +146,7 @@ label.check input { width: auto; }
 .kpi span { display: block; font-size: 13px; color: var(--text-2); }
 .kpi strong { font-size: 22px; font-variant-numeric: tabular-nums; }
 @media (max-width: 480px) {
-  .kpi strong { font-size: 14px; display: block; overflow-wrap: anywhere; }
+  .kpi strong { font-size: clamp(12px, 3.4vw, 15px); display: block; white-space: nowrap; }
   .kpi { padding: 10px 8px; }
   .kpi span { font-size: 12px; }
   #people-table th, #people-table td { font-size: 13px; padding: 8px 3px; }
@@ -209,7 +209,12 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 
 /* NF / scanner */
 .scanner { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-.scanner video { width: 100%; max-height: 360px; background: #000; border-radius: 10px; object-fit: cover; }
+.scanner-view { position: relative; border-radius: 10px; overflow: hidden; background: #000; }
+.scanner video { display: block; width: 100%; max-height: 60vh; object-fit: cover; }
+.scanner-frame {
+  position: absolute; left: 50%; top: 50%; height: 70%; max-width: 80%; aspect-ratio: 1; transform: translate(-50%, -50%);
+  border: 3px solid rgb(255 255 255 / .9); border-radius: 12px; box-shadow: 0 0 0 100vmax rgb(0 0 0 / .35);
+}
 .status { margin-top: 10px; font-size: 14px; }
 .status:empty { display: none; }
 .status.ok { color: var(--good); }

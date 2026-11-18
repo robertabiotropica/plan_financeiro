@@ -87,6 +87,7 @@ css/style.css       visual (claro/escuro)
 js/parsers.js       leitura de nota fiscal, OFX e CSV (sem dependências)
 js/store.js         armazenamento, deduplicação e sugestão de categorias
 js/app.js           interface
+js/qr.js            leitura de QR Code (ZXing em WebAssembly, incluído em vendor/zxing)
 sw.js               funciona offline depois de aberto uma vez
 tests/              testes dos leitores: node tests/parsers.test.mjs
 ```

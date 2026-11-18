@@ -1,6 +1,6 @@
 // Cache simples para o app abrir mesmo sem internet.
-const CACHE = 'financas-v1';
-const FILES = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/store.js', 'js/parsers.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'financas-v2';
+const FILES = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/store.js', 'js/parsers.js', 'js/qr.js', 'vendor/zxing/share.js', 'vendor/zxing/reader/index.js', 'vendor/zxing/zxing_reader.wasm', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

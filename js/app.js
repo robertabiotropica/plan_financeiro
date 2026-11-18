@@ -2,6 +2,7 @@ import {
   parseMoney, parseNfQr, parseNfXml, parseOfx, parseCsvRows, guessCsvColumns, csvToTransactions,
 } from './parsers.js';
 import { store, GROUPS, PAYMENTS } from './store.js';
+import { decodeFrame, decodeImage, warmUp } from './qr.js';
 
 // ---------- utilidades ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -340,6 +341,11 @@ function editTx(id) {
   $('#form-submit').textContent = 'Salvar alterações';
   $('#form-delete').classList.remove('hidden');
   if (t.nf) showAttachedNf(t.nf);
+  else if (t.itens?.length) {
+    const box = $('#nf-attached');
+    box.innerHTML = `🛒 <b>${t.itens.length} itens</b><details><summary>ver itens</summary><ul>${t.itens.map((i) => `<li>${esc(i.descricao)}${i.quantidade !== 1 ? ` — ${i.quantidade} ${esc(i.unidade || '')}` : ''} = ${money(i.valor)}</li>`).join('')}</ul></details>`;
+    box.classList.remove('hidden');
+  }
 }
 
 form.addEventListener('submit', (e) => {
@@ -468,78 +474,81 @@ async function readXmlFiles(files) {
 $('#nf-xml').addEventListener('change', (e) => { readXmlFiles(Array.from(e.target.files)); e.target.value = ''; });
 
 // --- leitura de QR Code ---
-let jsQRPromise = null;
-function loadJsQR() {
-  if (!jsQRPromise) {
-    jsQRPromise = new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
-      s.onload = () => resolve(window.jsQR);
-      s.onerror = () => { jsQRPromise = null; reject(new Error('Não consegui carregar o leitor de QR (sem internet?).')); };
-      document.head.appendChild(s);
-    });
-  }
-  return jsQRPromise;
-}
-async function decodeQr(source, w, h) {
-  if ('BarcodeDetector' in window) {
-    try {
-      const det = new window.BarcodeDetector({ formats: ['qr_code'] });
-      const codes = await det.detect(source);
-      if (codes.length) return codes[0].rawValue;
-      if (!(source instanceof HTMLCanvasElement)) return null;
-    } catch { /* cai para jsQR */ }
-  }
-  const jsQR = await loadJsQR();
-  const canvas = source instanceof HTMLCanvasElement ? source : document.createElement('canvas');
-  if (canvas !== source) {
-    canvas.width = w; canvas.height = h;
-    canvas.getContext('2d').drawImage(source, 0, 0, w, h);
-  }
-  const data = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
-  return jsQR(data.data, canvas.width, canvas.height)?.data || null;
-}
-
 let scanStream = null;
+let scanStarted = 0;
+let torchOn = false;
+
 async function startScan() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus(nfStatus, 'Este navegador não libera a câmera aqui. Use “Foto do QR”.', 'err');
+    setStatus(nfStatus, 'Este navegador não libera a câmera aqui. Use “Foto do QR” ou digite a chave.', 'err');
     return;
   }
+  warmUp();
   try {
-    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
   } catch (e) {
-    setStatus(nfStatus, `Não consegui abrir a câmera (${esc(e.message)}). Use “Foto do QR”.`, 'err');
+    setStatus(nfStatus, `Não consegui abrir a câmera (${esc(e.message)}). Confira a permissão de câmera do navegador, ou use “Foto do QR”.`, 'err');
     return;
   }
+  const track = scanStream.getVideoTracks()[0];
+  const caps = track.getCapabilities?.() || {};
+  if (caps.focusMode?.includes('continuous')) track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+  $('#scanner-torch').classList.toggle('hidden', !caps.torch);
+  torchOn = false;
+
   const video = $('#scanner-video');
   video.srcObject = scanStream;
-  await video.play();
+  await video.play().catch(() => {});
   $('#scanner').classList.remove('hidden');
-  setStatus(nfStatus, 'Aponte a câmera para o QR Code da nota…');
-  const canvas = document.createElement('canvas');
+  $('#scanner').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setStatus(nfStatus, 'Aponte para o QR Code da nota, deixando-o dentro do quadrado e bem iluminado.');
+  scanStarted = Date.now();
+  let attempt = 0;
+  let hinted = false;
   const tick = async () => {
     if (!scanStream) return;
-    if (video.readyState >= 2) {
-      const scale = Math.min(1, 800 / video.videoWidth);
-      canvas.width = video.videoWidth * scale; canvas.height = video.videoHeight * scale;
-      canvas.getContext('2d', { willReadFrequently: true }).drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (video.readyState >= 2 && video.videoWidth) {
       try {
-        const text = await decodeQr(canvas);
-        if (text) { stopScan(); handleNf(parseNfQr(text)); return; }
-      } catch (e) { stopScan(); setStatus(nfStatus, esc(e.message), 'err'); return; }
+        const text = await decodeFrame(video, video.videoWidth, video.videoHeight, attempt++);
+        if (!scanStream) return;
+        if (text) {
+          navigator.vibrate?.(80);
+          stopScan();
+          handleNf(parseNfQr(text));
+          return;
+        }
+      } catch (e) {
+        console.error(e);
+        stopScan();
+        setStatus(nfStatus, `Falha no leitor de QR: ${esc(e.message)}. Use “Foto do QR” ou digite a chave.`, 'err');
+        return;
+      }
+      if (!hinted && Date.now() - scanStarted > 15000) {
+        hinted = true;
+        setStatus(nfStatus, 'Ainda não consegui ler. Dicas: afaste um pouco o celular (uns 15 cm) para focar, evite reflexo no papel, ou tire uma foto com “Foto do QR”. Também dá para digitar a chave de 44 dígitos que vem embaixo do QR.', 'warn');
+      }
     }
-    setTimeout(tick, 250);
+    requestAnimationFrame(() => setTimeout(tick, 60));
   };
   tick();
 }
 function stopScan() {
   scanStream?.getTracks().forEach((t) => t.stop());
   scanStream = null;
+  $('#scanner-video').srcObject = null;
   $('#scanner').classList.add('hidden');
 }
 $('#nf-scan').addEventListener('click', startScan);
 $('#scanner-stop').addEventListener('click', () => { stopScan(); setStatus(nfStatus, ''); });
+$('#scanner-torch').addEventListener('click', () => {
+  const track = scanStream?.getVideoTracks()[0];
+  if (!track) return;
+  torchOn = !torchOn;
+  track.applyConstraints({ advanced: [{ torch: torchOn }] }).catch(() => {});
+});
 
 $('#nf-photo').addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -548,13 +557,9 @@ $('#nf-photo').addEventListener('change', async (e) => {
   setStatus(nfStatus, 'Lendo a foto…');
   try {
     const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = bmp.width * scale; canvas.height = bmp.height * scale;
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const text = await decodeQr(canvas);
+    const text = await decodeImage(bmp);
     if (text) handleNf(parseNfQr(text));
-    else setStatus(nfStatus, 'Não achei um QR Code na foto. Tente mais perto e com boa luz, ou cole o link/chave.', 'err');
+    else setStatus(nfStatus, 'Não achei um QR Code na foto. Tire de novo mais perto, com o QR ocupando boa parte da foto e sem reflexo — ou digite a chave de 44 dígitos.', 'err');
   } catch (err) { setStatus(nfStatus, esc(err.message), 'err'); }
 });
 
@@ -734,7 +739,7 @@ function renderList() {
   const list = txInRange(from, to)
     .filter((t) => !type || t.type === type)
     .filter((t) => !catSel.value || t.category === catSel.value)
-    .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, t.nf?.itens?.map((i) => i.descricao).join(' ')]
+    .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, (t.nf?.itens || t.itens || []).map((i) => i.descricao).join(' ')]
       .join(' ').toLowerCase().includes(q))
     .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
   const total = list.reduce((s, t) => s + (t.type === 'entrada' ? t.amount : -t.amount), 0);
@@ -742,7 +747,7 @@ function renderList() {
     ? `<thead><tr><th>Data</th><th>Descrição</th><th class="col-cat">Categoria</th><th class="num">Valor</th></tr></thead><tbody>${
       list.map((t) => `<tr class="clickable" title="Toque para editar" data-id="${t.id}">
         <td>${fmtDate(t.date).slice(0, 5)}<span class="sub">${t.date.slice(0, 4)}</span></td>
-        <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}
+        <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}${t.itens?.length ? `<span class="badge">🛒 ${t.itens.length} itens</span>` : ''}
           <span class="sub">${esc([t.place && t.place !== t.description ? t.place : '', t.paidBy, t.payment].filter(Boolean).join(' · '))}</span></td>
         <td class="col-cat">${esc(t.category)}</td>
         <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(t.amount)}<span class="sub only-mobile">${esc(t.category)}</span></td>

@@ -88,12 +88,18 @@
           <label class="btn">📄 XML da nota<input type="file" accept=".xml,text/xml" id="nf-xml" hidden multiple></label>
         </div>
         <div class="paste-row">
-          <input type="text" id="nf-text" placeholder="Cole aqui o link do QR Code ou a chave de 44 dígitos">
+          <input type="text" id="nf-text" placeholder="Link do QR ou chave de 44 dígitos (vem embaixo do QR)" inputmode="text">
           <button class="btn" id="nf-read">Ler</button>
         </div>
         <div id="scanner" class="scanner hidden">
-          <video id="scanner-video" playsinline muted></video>
-          <button class="btn" id="scanner-stop">Cancelar</button>
+          <div class="scanner-view">
+            <video id="scanner-video" playsinline muted autoplay></video>
+            <div class="scanner-frame" aria-hidden="true"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" id="scanner-stop">Cancelar</button>
+            <button class="btn hidden" id="scanner-torch">🔦 Lanterna</button>
+          </div>
         </div>
         <div id="nf-status" class="status"></div>
       </div>
