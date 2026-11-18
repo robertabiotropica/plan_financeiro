@@ -208,6 +208,7 @@ export function openHousehold(id) {
         merchants: d.merchants || {},
         personOf: d.personOf || {},
         houseSize: d.houseSize || 3,
+        card: d.card || { owner: 'Lari', closingDay: 10 },
         migrations: d.migrations || {},
         householdName: d.name,
         memberNames: d.memberNames || {},

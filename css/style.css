@@ -299,3 +299,48 @@ input:focus, select:focus { outline-color: var(--accent); }
 .sync { font-size: 12px; color: var(--text-2); }
 .card h3 { font-size: 14px; margin: 16px 0 8px; color: var(--text-2); }
 .or { text-align: center; color: var(--text-3); font-size: 13px; }
+
+/* cartão */
+.card-nav { width: 100%; justify-content: space-between; }
+.fat-title { text-align: center; display: flex; flex-direction: column; }
+.fat-title span { font-size: 12px; color: var(--text-2); }
+.kpis-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.label-plain { font-size: 13px; color: var(--text-2); margin-bottom: 4px; }
+.payer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.payer-row:last-child { border-bottom: 0; }
+.payer-row .who b { display: block; }
+.payer-row .who span { font-size: 12px; color: var(--text-2); }
+.payer-row .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.payer-row .num small { display: block; color: var(--text-2); font-size: 12px; }
+.tx-table select.payer { min-width: 118px; }
+.tx-table .settle { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); margin-top: 4px; flex-direction: row; }
+.tx-table .settle input { width: auto; }
+tr.settled td { opacity: .6; }
+.desc-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+@media (max-width: 480px) { .tab { padding: 4px 3px; } }
+
+/* tabelas de revisão/fatura viram “cartões” no celular */
+@media (max-width: 560px) {
+  #imp-table thead, #fat-table thead { display: none; }
+  #imp-table tr, #fat-table tr {
+    display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 4px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  #imp-table td, #fat-table td { border: 0; padding: 0; }
+  /* importação: [✓] data ........ valor / descrição / tipo + quem paga */
+  #imp-table td:nth-child(1) { grid-column: 1; grid-row: 1 / span 3; padding-top: 2px; }
+  #imp-table td:nth-child(2) { grid-column: 2; grid-row: 1; font-size: 12px; color: var(--text-2); }
+  #imp-table td:nth-child(5) { grid-column: 3; grid-row: 1; }
+  #imp-table td:nth-child(3) { grid-column: 2 / 4; grid-row: 2; overflow-wrap: anywhere; }
+  #imp-table td:nth-child(4) { grid-column: 2 / 4; grid-row: 3; display: flex; flex-wrap: wrap; gap: 6px; }
+  #imp-table td:nth-child(4) select, #imp-table td:nth-child(4) input { flex: 1 1 140px; max-width: none; margin-top: 0 !important; }
+  /* fatura: data · descrição ........ valor / quem paga + acertado */
+  #fat-table tr { grid-template-columns: 44px minmax(0, 1fr) auto; }
+  #fat-table td:nth-child(1) { grid-column: 1; grid-row: 1; font-size: 13px; color: var(--text-2); padding-top: 1px; }
+  #fat-table td:nth-child(2) { grid-column: 2; grid-row: 1; overflow-wrap: anywhere; }
+  #fat-table td:nth-child(3) { grid-column: 3; grid-row: 1; }
+  #fat-table td:nth-child(4) { grid-column: 2 / 4; grid-row: 2; display: flex; align-items: center; gap: 10px; }
+  #fat-table td:nth-child(4) select { flex: 1; }
+  #fat-table .settle { margin-top: 0; white-space: nowrap; }
+  #fat-table tr td.empty, #imp-table tr td.empty { grid-column: 1 / -1; }
+}

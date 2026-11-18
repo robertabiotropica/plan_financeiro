@@ -21,8 +21,9 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="painel" role="tab">📊 <span>Painel</span></button>
       <button class="tab" data-tab="lancar" role="tab">➕ <span>Lançar</span></button>
+      <button class="tab" data-tab="cartao" role="tab">💳 <span>Cartão</span></button>
       <button class="tab" data-tab="importar" role="tab">📥 <span>Importar</span></button>
-      <button class="tab" data-tab="lista" role="tab">📋 <span>Lançamentos</span></button>
+      <button class="tab" data-tab="lista" role="tab">📋 <span>Lista</span></button>
       <button class="tab" data-tab="ajustes" role="tab">⚙️ <span>Ajustes</span></button>
     </nav>
   </header>
@@ -136,6 +137,58 @@
       </form>
     </section>
 
+    <!-- CARTÃO -->
+    <section id="tab-cartao" class="panel">
+      <div class="period-bar">
+        <div class="period-nav card-nav">
+          <button class="icon-btn" id="fat-prev" aria-label="Fatura anterior">‹</button>
+          <div class="fat-title"><strong id="fat-label"></strong><span id="fat-range"></span></div>
+          <button class="icon-btn" id="fat-next" aria-label="Próxima fatura">›</button>
+        </div>
+      </div>
+
+      <div class="kpis kpis-2">
+        <div class="kpi k-out"><span id="fat-total-label">Total da fatura</span><strong id="fat-total"></strong></div>
+        <div class="kpi k-in"><span id="fat-receive-label">A receber</span><strong id="fat-receive"></strong></div>
+      </div>
+
+      <div class="card">
+        <h2>Quem vai pagar</h2>
+        <div id="fat-payers"></div>
+      </div>
+
+      <form class="card" id="card-form" autocomplete="off">
+        <div class="card-head">
+          <h2>Novo gasto no cartão</h2>
+          <button type="button" class="btn small" id="card-import">📥 Importar fatura</button>
+        </div>
+        <div class="grid">
+          <label>Data<input type="date" name="date" required></label>
+          <label>Valor (R$)<input type="text" name="amount" inputmode="decimal" placeholder="0,00" required></label>
+          <label class="span2">Descrição<input type="text" name="description" placeholder="Ex.: Farmácia, Uber, presente da mãe" list="desc-list" required></label>
+          <label>Tipo de gasto<select name="category"></select></label>
+          <label>Parcela (opcional)<input type="text" name="installment" placeholder="Ex.: 2/5"></label>
+        </div>
+        <label class="label-plain">Quem vai pagar</label>
+        <div class="seg seg-full" id="card-payer"></div>
+        <label class="hidden" id="card-other-wrap">Quem? (nome)<input type="text" name="otherName" list="other-list" placeholder="Ex.: Mãe, Ana, Pedro"></label>
+        <div class="btn-row" style="margin-top:12px">
+          <button type="submit" class="btn primary">Adicionar à fatura</button>
+        </div>
+        <datalist id="other-list"></datalist>
+      </form>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Gastos da fatura</h2>
+          <select id="fat-filter" style="width:auto">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table class="tx-table" id="fat-table"></table></div>
+      </div>
+    </section>
+
     <!-- IMPORTAR -->
     <section id="tab-importar" class="panel">
       <div class="card">
@@ -148,6 +201,10 @@
       <div class="card hidden" id="imp-config">
         <h2>Como ler este arquivo</h2>
         <div class="grid" id="csv-map"></div>
+        <div class="seg seg-full" id="imp-kind">
+          <button type="button" data-kind="extrato" class="on">Extrato do banco</button>
+          <button type="button" data-kind="cartao">Fatura do cartão</button>
+        </div>
         <div class="grid">
           <label>Conta / cartão<input type="text" id="imp-account" placeholder="Ex.: Nubank Robs"></label>
           <label>Pago por (padrão)<select id="imp-paidby"></select></label>
@@ -198,6 +255,14 @@
         </div>
         <label style="max-width:260px">Pessoas que dividem as contas do apê<input type="number" id="house-size" min="2" max="20" inputmode="numeric"></label>
         <p class="hint" style="margin:6px 0 0">Usado na opção “Dividido com a casa”: só a parte de vocês entra nos totais.</p>
+      </div>
+      <div class="card">
+        <h2>Cartão de crédito</h2>
+        <div class="grid">
+          <label>Dona/dono do cartão<select id="card-owner"></select></label>
+          <label>Dia de fechamento da fatura<input type="number" id="card-closing" min="1" max="28" inputmode="numeric"></label>
+        </div>
+        <p class="hint" style="margin:0">Compras até o dia de fechamento entram na fatura daquele mês; depois disso, na do mês seguinte. Gastos com forma de pagamento “Crédito” aparecem na aba Cartão.</p>
       </div>
       <div class="card">
         <h2>Categorias</h2>

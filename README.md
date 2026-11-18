@@ -38,6 +38,17 @@ salvos no próprio navegador, e dá para instalar na tela inicial do celular.
 - Totais por grupo, como na planilha: **Contas apê, Mercado, Outras compras**, e
   ranking de gastos por categoria.
 
+**Cartão (fatura da Lari)**
+- Fatura por mês, pelo dia de fechamento (padrão: dia 10 — a fatura de setembro tem
+  as compras de 11/08 a 10/09), com navegação entre faturas.
+- Cada gasto com descrição, tipo e **quem vai pagar: Lari, Lari e Robs ou Outros**
+  (com o nome da pessoa). Dá para trocar direto na lista.
+- Resumo: total da fatura, quanto é de cada um e **quanto a Lari tem a receber**,
+  com marcação de “acertado”.
+- Entrada rápida ou importação da fatura (CSV/OFX) escolhendo quem paga em cada linha.
+- No painel geral, gastos de “Outros” não contam como gastos de vocês, e o pagamento
+  da fatura que aparece no extrato do banco vem desmarcado (para não contar duas vezes).
+
 **Lançamentos e Ajustes**
 - Lista do período com busca (inclusive pelos itens das notas) e filtros; toque para
   editar ou excluir.

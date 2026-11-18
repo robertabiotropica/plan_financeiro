@@ -61,6 +61,8 @@ function emptyState() {
     houseSize: 3,
     // correções de dados já aplicadas
     migrations: {},
+    // cartão de crédito acompanhado na aba Cartão
+    card: { owner: 'Lari', closingDay: 10 },
   };
 }
 
@@ -146,12 +148,22 @@ export const store = {
   settings() {
     return {
       people: state.people, categories: state.categories, memory: state.memory, merchants: state.merchants,
-      houseSize: state.houseSize || 3, migrations: state.migrations || {},
+      houseSize: state.houseSize || 3, migrations: state.migrations || {}, card: this.card,
     };
   },
   defaultSettings() {
     const e = emptyState();
-    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {} };
+    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {}, card: e.card };
+  },
+  get card() {
+    const c = state.card || {};
+    const owner = state.people.includes(c.owner) ? c.owner : state.people[1];
+    return { owner, closingDay: Math.min(28, Math.max(1, Number(c.closingDay) || 10)) };
+  },
+  setCard(patch) {
+    state.card = { ...this.card, ...patch };
+    backend.saveSettings(this.settings());
+    emit();
   },
   get houseSize() { return Math.max(2, Number(state.houseSize) || 3); },
   setHouseSize(n) {
