@@ -61,6 +61,7 @@ function emptyState() {
 }
 
 let state = load();
+const listeners = new Set();
 
 function load() {
   try {
@@ -70,7 +71,18 @@ function load() {
   return emptyState();
 }
 
-function save() {
+/**
+ * Backend local: grava tudo no localStorage deste aparelho.
+ * O backend da nuvem (cloud.js) implementa as mesmas funções gravando no Firestore.
+ */
+const localBackend = {
+  kind: 'local',
+  saveSettings() { saveLocal(); },
+  putTxs() { saveLocal(); },
+  patchTx() { saveLocal(); },
+  deleteTx() { saveLocal(); },
+};
+function saveLocal() {
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
   } catch (e) {
@@ -78,11 +90,59 @@ function save() {
     throw e;
   }
 }
+let backend = localBackend;
+let currentUser = null; // { uid, name } quando logado
+
+function newId(tx) {
+  // Lançamentos com chave de deduplicação (nota, extrato, planilha) usam um id
+  // derivado dela: mesmo que dois aparelhos lancem ao mesmo tempo, vira um só.
+  if (tx.dedupKey) return `k-${tx.dedupKey.replace(/[/\s]/g, '_').slice(0, 300)}`;
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+function stamp(tx) {
+  return {
+    id: newId(tx),
+    createdAt: new Date().toISOString(),
+    ...(currentUser ? { createdBy: currentUser.uid, createdByName: currentUser.name } : {}),
+    ...tx,
+  };
+}
+function emit() { listeners.forEach((fn) => { try { fn(); } catch (e) { console.error(e); } }); }
 
 export const store = {
   get state() { return state; },
   get people() { return state.people; },
   get transactions() { return state.transactions; },
+  get backendKind() { return backend.kind; },
+  get user() { return currentUser; },
+  /** Pessoa (ex.: Robs) associada ao login atual na conta aberta. */
+  get me() { return currentUser ? state.personOf?.[currentUser.uid] || null : null; },
+
+  onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+
+  /** Liga a um backend (nuvem). `initial` é o estado vindo dele. */
+  useBackend(b, user) {
+    backend = b;
+    currentUser = user || null;
+  },
+  useLocal() {
+    backend = localBackend;
+    currentUser = null;
+    state = load();
+    emit();
+  },
+  /** Substitui partes do estado (chamado pelos snapshots da nuvem). */
+  replace(partial) {
+    state = { ...state, ...partial };
+    emit();
+  },
+  /** Dados salvos só neste aparelho (para enviar para a nuvem). */
+  localData() { return load(); },
+  clearLocalData() { localStorage.removeItem(KEY); },
+  settings() {
+    return { people: state.people, categories: state.categories, memory: state.memory, merchants: state.merchants };
+  },
+  defaultSettings() { const e = emptyState(); return { people: e.people, categories: e.categories, memory: {}, merchants: {} }; },
 
   categoriesFor(type) {
     return state.categories.filter((c) => (type === 'entrada') === (c.group === 'Entradas'));
@@ -94,25 +154,27 @@ export const store = {
   setPeople(a, b) {
     const old = [...state.people];
     state.people = [a || 'Pessoa 1', b || 'Pessoa 2'];
+    const changed = [];
     state.transactions.forEach((t) => {
       const i = old.indexOf(t.paidBy);
-      if (i !== -1) t.paidBy = state.people[i];
+      if (i !== -1 && t.paidBy !== state.people[i]) { t.paidBy = state.people[i]; changed.push(t); }
     });
-    save();
+    backend.saveSettings(this.settings());
+    changed.forEach((t) => backend.patchTx(t.id, { paidBy: t.paidBy }));
   },
   addCategory(name, group) {
     if (!name || state.categories.some((c) => normalizeText(c.name) === normalizeText(name))) return false;
     state.categories.push({ name, group });
-    save();
+    backend.saveSettings(this.settings());
     return true;
   },
   setCategoryGroup(name, group) {
     const c = state.categories.find((x) => x.name === name);
-    if (c) { c.group = group; save(); }
+    if (c) { c.group = group; backend.saveSettings(this.settings()); }
   },
   removeCategory(name) {
     state.categories = state.categories.filter((c) => c.name !== name);
-    save();
+    backend.saveSettings(this.settings());
   },
 
   findByDedupKey(key) {
@@ -131,41 +193,40 @@ export const store = {
 
   add(tx) {
     if (tx.dedupKey && this.findByDedupKey(tx.dedupKey)) return null;
-    const full = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      createdAt: new Date().toISOString(),
-      ...tx,
-    };
+    const full = stamp(tx);
     state.transactions.push(full);
     this.learn(full);
-    save();
+    backend.putTxs([full]);
+    backend.saveSettings(this.settings());
     return full;
   },
   addMany(list) {
-    let added = 0;
+    const added = [];
     list.forEach((tx) => {
       if (tx.dedupKey && this.findByDedupKey(tx.dedupKey)) return;
-      state.transactions.push({
-        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        createdAt: new Date().toISOString(),
-        ...tx,
-      });
-      this.learn(tx);
-      added++;
+      const full = stamp(tx);
+      state.transactions.push(full);
+      this.learn(full);
+      added.push(full);
     });
-    save();
-    return added;
+    if (added.length) {
+      backend.putTxs(added);
+      backend.saveSettings(this.settings());
+    }
+    return added.length;
   },
   update(id, patch) {
     const t = state.transactions.find((x) => x.id === id);
     if (!t) return;
-    Object.assign(t, patch);
+    const full = { ...patch, updatedAt: new Date().toISOString(), ...(currentUser ? { updatedByName: currentUser.name } : {}) };
+    Object.assign(t, full);
     this.learn(t);
-    save();
+    backend.patchTx(id, full);
+    backend.saveSettings(this.settings());
   },
   remove(id) {
     state.transactions = state.transactions.filter((t) => t.id !== id);
-    save();
+    backend.deleteTx(id);
   },
 
   learn(t) {
@@ -193,25 +254,33 @@ export const store = {
 
   exportJson() { return JSON.stringify(state, null, 2); },
 
-  /** Junta um backup ao estado atual sem duplicar (por id e por dedupKey). */
-  mergeBackup(json) {
-    const data = JSON.parse(json);
+  /** Junta um backup (objeto ou JSON) ao estado atual sem duplicar (por id e por dedupKey). */
+  mergeBackup(input) {
+    const data = typeof input === 'string' ? JSON.parse(input) : input;
     if (!Array.isArray(data.transactions)) throw new Error('Arquivo de backup inválido.');
     const ids = new Set(state.transactions.map((t) => t.id));
     const keys = new Set(state.transactions.map((t) => t.dedupKey).filter(Boolean));
-    let added = 0;
+    const added = [];
     data.transactions.forEach((t) => {
       if (ids.has(t.id) || (t.dedupKey && keys.has(t.dedupKey))) return;
-      state.transactions.push(t); ids.add(t.id); if (t.dedupKey) keys.add(t.dedupKey);
-      added++;
+      const tx = t.id && !String(t.id).includes('/') ? t : { ...t, id: newId(t) };
+      state.transactions.push(tx); added.push(tx);
+      ids.add(tx.id); if (tx.dedupKey) keys.add(tx.dedupKey);
     });
     (data.categories || []).forEach((c) => {
       if (!state.categories.some((x) => x.name === c.name)) state.categories.push(c);
     });
     state.memory = { ...data.memory, ...state.memory };
     state.merchants = { ...data.merchants, ...state.merchants };
-    save();
-    return added;
+    if (added.length) backend.putTxs(added);
+    backend.saveSettings(this.settings());
+    return added.length;
   },
-  wipe() { state = emptyState(); save(); },
+  /** Apaga todos os lançamentos do backend atual. */
+  wipe() {
+    const ids = state.transactions.map((t) => t.id);
+    if (backend.kind === 'local') { state = emptyState(); saveLocal(); return; }
+    state.transactions = [];
+    ids.forEach((id) => backend.deleteTx(id));
+  },
 };

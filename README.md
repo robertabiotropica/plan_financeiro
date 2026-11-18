@@ -69,11 +69,52 @@ A câmera só funciona em HTTPS (o GitHub Pages já é HTTPS).
 > ⚠️ Repositório público + GitHub Pages expõe só o *código* do app — os dados de
 > vocês ficam no navegador de cada aparelho e não vão para o GitHub.
 
+## Login e contas compartilhadas (Firebase)
+
+Com o login ativado:
+- **cada pessoa tem o próprio login** (e-mail e senha, ou conta Google);
+- os dados ficam numa **conta compartilhada** (ex.: “Casa”): todos os membros veem e
+  lançam nos mesmos dados, ao vivo, e cada lançamento mostra **quem lançou**;
+- dá para **criar contas novas** (começam vazias) e alternar entre elas em *Ajustes*;
+- para alguém entrar numa conta: *Ajustes → Convidar alguém* gera um código/link
+  que vale 7 dias;
+- funciona offline e sincroniza quando a internet volta;
+- dados salvos no aparelho antes do login podem ser enviados para a conta (sem duplicar).
+
+Sem configuração, o app continua funcionando só no aparelho, como antes.
+
+### Como ativar (uma vez, ~10 minutos, plano gratuito)
+
+1. Acesse https://console.firebase.google.com → **Adicionar projeto** → nome
+   `mimimei` → pode desativar o Google Analytics → **Criar projeto**.
+2. **Authentication** → *Vamos começar* → aba **Método de login**:
+   ative **E-mail/senha** e **Google** (escolha um e-mail de suporte).
+3. Ainda em **Authentication** → **Configurações** → **Domínios autorizados** →
+   *Adicionar domínio* → `robertabiotropica.github.io`.
+4. **Firestore Database** → *Criar banco de dados* → local **southamerica-east1
+   (São Paulo)** → **modo de produção**.
+5. Firestore → aba **Regras** → apague o que estiver lá, cole todo o conteúdo de
+   [`firebase/firestore.rules`](firebase/firestore.rules) → **Publicar**.
+6. ⚙️ **Configurações do projeto** → *Seus apps* → ícone **Web `</>`** → apelido
+   `MiMimei` → **Registrar app** → copie o bloco `firebaseConfig = { ... }`.
+7. Cole esses valores em [`js/firebase-config.js`](js/firebase-config.js) no lugar
+   de `null` (ou mande para o Claude colocar). Esses valores não são secretos; quem
+   protege os dados são as regras do passo 5.
+
+### Testes
+
+```bash
+npm test                      # leitores de nota, OFX e CSV
+```
+
+As regras de segurança e o fluxo de login/convite foram testados com o emulador
+oficial (`firebase emulators:start --only auth,firestore`, abrindo o app em
+`http://localhost:8000/?emulador`).
+
 ## Limitações a saber
 
-- **Os dados ficam em cada aparelho.** Para os dois verem a mesma coisa, use
-  *Ajustes → Baixar backup* em um aparelho e *Restaurar backup* no outro (não duplica).
-  Sincronização automática entre os celulares seria o próximo passo.
+- **Sem login, os dados ficam em cada aparelho.** Ative o login (acima) para os dois
+  verem e lançarem nos mesmos dados.
 - **QR Code da NFC-e normalmente não traz o valor nem os itens** (só a chave). O app
   preenche CNPJ, mês e número, e você digita o valor; o link “ver nota na SEFAZ”
   mostra a nota completa. Para itens automáticos, use o XML (muitos apps de nota
@@ -87,6 +128,10 @@ css/style.css       visual (claro/escuro)
 js/parsers.js       leitura de nota fiscal, OFX e CSV (sem dependências)
 js/store.js         armazenamento, deduplicação e sugestão de categorias
 js/app.js           interface
+js/cloud.js         login, contas, convites e sincronização (Firebase)
+js/account.js       telas de login e de contas
+js/firebase-config.js  configuração do projeto Firebase
+firebase/           regras de segurança do banco de dados
 js/qr.js            leitura de QR Code (ZXing em WebAssembly, incluído em vendor/zxing)
 sw.js               funciona offline depois de aberto uma vez
 tests/              testes dos leitores: node tests/parsers.test.mjs

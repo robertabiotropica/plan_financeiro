@@ -14,7 +14,10 @@
 </head>
 <body>
   <header class="topbar">
-    <h1><img src="icon.svg" alt=""><span>MiMimei<span class="dot">.</span></span></h1>
+    <div class="brand">
+      <h1><img src="icon.svg" alt=""><span>MiMimei<span class="dot">.</span></span></h1>
+      <button class="chip hidden" id="account-chip" title="Conta e login"></button>
+    </div>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="painel" role="tab">📊 <span>Painel</span></button>
       <button class="tab" data-tab="lancar" role="tab">➕ <span>Lançar</span></button>
@@ -186,6 +189,7 @@
 
     <!-- AJUSTES -->
     <section id="tab-ajustes" class="panel">
+      <div class="card" id="account-card"></div>
       <div class="card">
         <h2>Pessoas</h2>
         <div class="grid">
@@ -205,7 +209,7 @@
       </div>
       <div class="card">
         <h2>Backup e dados</h2>
-        <p class="hint">Os dados ficam salvos neste navegador. Faça backup de vez em quando e use “Restaurar” para levar os dados para outro aparelho — a restauração junta sem duplicar.</p>
+        <p class="hint">Baixe um backup de vez em quando. “Restaurar” junta um backup à conta aberta (ou a este aparelho, sem login) sem duplicar.</p>
         <div class="btn-row">
           <button class="btn" id="backup-export">💾 Baixar backup</button>
           <label class="btn">♻️ Restaurar backup<input type="file" id="backup-import" accept=".json" hidden></label>
@@ -216,6 +220,38 @@
       </div>
     </section>
   </main>
+
+  <!-- LOGIN -->
+  <div id="login" class="login hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <form class="login-box" id="login-form" autocomplete="on">
+      <div class="login-brand"><img src="icon.svg" alt=""><span>MiMimei<span class="dot">.</span></span></div>
+      <h2 id="login-title">Entrar</h2>
+      <p class="hint" id="login-sub">Cada pessoa tem seu login; os dados ficam numa conta que vocês compartilham.</p>
+      <label class="hidden" id="login-name-wrap">Seu nome<input type="text" name="name" autocomplete="given-name" placeholder="Ex.: Robs"></label>
+      <label>E-mail<input type="email" name="email" autocomplete="username" required></label>
+      <label>Senha<input type="password" name="password" autocomplete="current-password" minlength="6" required></label>
+      <div id="login-status" class="status"></div>
+      <button type="submit" class="btn primary" id="login-submit">Entrar</button>
+      <button type="button" class="btn" id="login-google">Entrar com Google</button>
+      <div class="login-links">
+        <button type="button" class="link" id="login-toggle">Ainda não tenho login — criar</button>
+        <button type="button" class="link" id="login-reset">Esqueci a senha</button>
+      </div>
+      <button type="button" class="link muted" id="login-local">Usar sem login (dados só neste aparelho)</button>
+    </form>
+    <div class="login-box hidden" id="onboard">
+      <div class="login-brand"><img src="icon.svg" alt=""><span>MiMimei<span class="dot">.</span></span></div>
+      <h2>Bem-vindo(a)!</h2>
+      <p class="hint">Se alguém já criou a conta da casa, peça o <b>código de convite</b> e digite abaixo. Se não, crie a conta e convide a outra pessoa depois.</p>
+      <label>Código de convite<input type="text" id="onboard-code" placeholder="Ex.: K7M2QX9P" autocapitalize="characters" maxlength="12"></label>
+      <button type="button" class="btn primary" id="onboard-join">Entrar na conta com o código</button>
+      <div class="or">ou</div>
+      <label>Nome da nova conta<input type="text" id="onboard-name" value="Casa"></label>
+      <button type="button" class="btn" id="onboard-create">Criar uma conta nova</button>
+      <div id="onboard-status" class="status"></div>
+      <button type="button" class="link muted" id="onboard-logout">Sair</button>
+    </div>
+  </div>
 
   <div id="toast" class="toast" role="status"></div>
   <div id="tooltip" class="tooltip" role="tooltip"></div>

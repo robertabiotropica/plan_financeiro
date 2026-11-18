@@ -3,6 +3,7 @@ import {
 } from './parsers.js';
 import { store, GROUPS, PAYMENTS } from './store.js';
 import { decodeFrame, decodeImage, warmUp } from './qr.js';
+import { initAccount, renderCard } from './account.js';
 
 // ---------- utilidades ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -306,6 +307,7 @@ function resetForm() {
   $('#form-warning').classList.add('hidden');
   setFormType('gasto');
   form.category.value = 'Mercado';
+  if (store.me) form.paidBy.value = store.me;
   refreshDatalists();
 }
 $('#form-cancel').addEventListener('click', resetForm);
@@ -748,7 +750,7 @@ function renderList() {
       list.map((t) => `<tr class="clickable" title="Toque para editar" data-id="${t.id}">
         <td>${fmtDate(t.date).slice(0, 5)}<span class="sub">${t.date.slice(0, 4)}</span></td>
         <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}${t.itens?.length ? `<span class="badge">🛒 ${t.itens.length} itens</span>` : ''}
-          <span class="sub">${esc([t.place && t.place !== t.description ? t.place : '', t.paidBy, t.payment].filter(Boolean).join(' · '))}</span></td>
+          <span class="sub">${esc([t.place && t.place !== t.description ? t.place : '', t.paidBy, t.payment, t.createdByName && store.backendKind === 'cloud' ? `lançado por ${t.createdByName}` : ''].filter(Boolean).join(' · '))}</span></td>
         <td class="col-cat">${esc(t.category)}</td>
         <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(t.amount)}<span class="sub only-mobile">${esc(t.category)}</span></td>
       </tr>`).join('')}</tbody>
@@ -770,6 +772,7 @@ $('#form-delete').addEventListener('click', () => {
 
 // ---------- ajustes ----------
 function renderSettings() {
+  renderCard();
   $('#person-0').value = store.people[0];
   $('#person-1').value = store.people[1];
   $('#cat-new-group').innerHTML = options(GROUPS, 'Outras compras');
@@ -817,7 +820,8 @@ $('#csv-export').addEventListener('click', () => {
   download(`mimimei-${iso(new Date())}.csv`, `﻿${head.map(cell).join(';')}\n${lines.join('\n')}`, 'text/csv');
 });
 $('#wipe').addEventListener('click', () => {
-  if (confirm('Apagar TODOS os lançamentos deste aparelho? Faça um backup antes.') && confirm('Tem certeza? Não dá para desfazer.')) {
+  const where = store.backendKind === 'cloud' ? `da conta “${store.state.householdName}” (para todos os membros)` : 'deste aparelho';
+  if (confirm(`Apagar TODOS os lançamentos ${where}? Faça um backup antes.`) && confirm('Tem certeza? Não dá para desfazer.')) {
     store.wipe(); toast('Dados apagados.'); renderSettings(); resetForm();
   }
 });
@@ -828,8 +832,27 @@ window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if ($('#tab-painel').classList.contains('active')) renderTimeChart(); }, 150);
 });
+// Quando os dados mudam (outro celular lançou, troca de conta…), redesenha sem apagar o que está sendo digitado.
+let changeTimer;
+store.onChange(() => {
+  clearTimeout(changeTimer);
+  changeTimer = setTimeout(() => {
+    const active = $('.panel.active')?.id;
+    if (active === 'tab-painel') renderDashboard();
+    if (active === 'tab-lista') renderList();
+    if (active === 'tab-ajustes' && !document.activeElement?.closest('#tab-ajustes')) renderSettings();
+    fillFormSelects(form.category.value, form.paidBy.value, form.payment.value);
+    refreshDatalists();
+  }, 50);
+});
+
 resetForm();
 renderDashboard();
+initAccount({
+  toast,
+  showTab,
+  onAccountChange: () => { if (!editingId) resetForm(); renderDashboard(); },
+});
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

@@ -265,3 +265,37 @@ tr.clickable:hover td { background: var(--surface-2); }
 .btn:not(.primary):hover { border-color: var(--accent); }
 input:focus, select:focus { outline-color: var(--accent); }
 .badge { background: var(--accent-soft); color: var(--accent); }
+
+/* login e contas */
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.chip {
+  font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw;
+  border: 1px solid rgb(255 255 255 / .35); background: rgb(255 255 255 / .12); color: #fff; border-radius: 999px; padding: 4px 10px;
+}
+.login {
+  position: fixed; inset: 0; z-index: 100; background: var(--bg);
+  display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 32px 16px;
+}
+.login-box {
+  width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+  padding: 24px 20px; display: flex; flex-direction: column; gap: 12px;
+}
+.login-box h2 { margin: 4px 0 0; font-size: 20px; color: var(--text); }
+.login-box .hint { margin: 0; }
+.login-box .btn { width: 100%; padding: 11px 14px; }
+.login-brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 700; color: var(--brand); }
+.login-brand img { width: 40px; height: 40px; border-radius: 11px; }
+.login-brand .dot, .dot { color: var(--brand-orange); }
+.login-links { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.link { font: inherit; font-size: 14px; background: none; border: 0; padding: 4px 0; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.link.muted { color: var(--text-2); }
+.acct-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.acct-row:last-of-type { border-bottom: 0; }
+.acct-row .who { min-width: 0; }
+.acct-row .who b { display: block; }
+.acct-row .who span { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.acct-row select { width: auto; min-width: 116px; max-width: 55%; flex-shrink: 0; }
+.invite-code { font: 700 24px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .12em; color: var(--accent); }
+.sync { font-size: 12px; color: var(--text-2); }
+.card h3 { font-size: 14px; margin: 16px 0 8px; color: var(--text-2); }
+.or { text-align: center; color: var(--text-3); font-size: 13px; }
