@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nossas Finanças</title>
+  <meta name="description" content="Planejamento financeiro de Robs e Lari: lançamentos, notas fiscais, extratos e painel por período.">
+  <meta name="theme-color" content="#2a78d6">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Nossas Finanças</h1>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="painel" role="tab">📊 <span>Painel</span></button>
+      <button class="tab" data-tab="lancar" role="tab">➕ <span>Lançar</span></button>
+      <button class="tab" data-tab="importar" role="tab">📥 <span>Importar</span></button>
+      <button class="tab" data-tab="lista" role="tab">📋 <span>Lançamentos</span></button>
+      <button class="tab" data-tab="ajustes" role="tab">⚙️ <span>Ajustes</span></button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- PAINEL -->
+    <section id="tab-painel" class="panel active">
+      <div class="period-bar">
+        <div class="seg" id="period-mode">
+          <button data-mode="semana">Semana</button>
+          <button data-mode="mes" class="on">Mês</button>
+          <button data-mode="ano">Ano</button>
+          <button data-mode="custom">Período</button>
+        </div>
+        <div class="period-nav">
+          <button class="icon-btn" id="period-prev" aria-label="Período anterior">‹</button>
+          <strong id="period-label"></strong>
+          <button class="icon-btn" id="period-next" aria-label="Próximo período">›</button>
+        </div>
+        <div class="period-custom hidden" id="period-custom">
+          <label>De <input type="date" id="custom-from"></label>
+          <label>Até <input type="date" id="custom-to"></label>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><span>Entradas</span><strong id="kpi-in"></strong></div>
+        <div class="kpi"><span>Gastos</span><strong id="kpi-out"></strong></div>
+        <div class="kpi"><span>Saldo</span><strong id="kpi-bal"></strong></div>
+      </div>
+
+      <div class="card">
+        <h2>Por pessoa</h2>
+        <div id="people-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Entradas × Gastos</h2>
+          <div class="legend">
+            <span><i class="sw sw-in"></i>Entradas</span>
+            <span><i class="sw sw-out"></i>Gastos</span>
+          </div>
+        </div>
+        <div id="chart-time" class="chart"></div>
+      </div>
+
+      <div class="card">
+        <h2>Gastos por grupo</h2>
+        <div id="groups"></div>
+      </div>
+
+      <div class="card">
+        <h2>Gastos por categoria</h2>
+        <div id="chart-cat"></div>
+      </div>
+    </section>
+
+    <!-- LANÇAR -->
+    <section id="tab-lancar" class="panel">
+      <div class="card">
+        <h2>Ler nota fiscal</h2>
+        <p class="hint">Escaneie o QR Code da NFC-e, cole o link/chave ou envie o XML. A chave de acesso impede lançar a mesma nota duas vezes.</p>
+        <div class="btn-row">
+          <button class="btn" id="nf-scan">📷 Escanear QR</button>
+          <label class="btn">🖼️ Foto do QR<input type="file" accept="image/*" capture="environment" id="nf-photo" hidden></label>
+          <label class="btn">📄 XML da nota<input type="file" accept=".xml,text/xml" id="nf-xml" hidden multiple></label>
+        </div>
+        <div class="paste-row">
+          <input type="text" id="nf-text" placeholder="Cole aqui o link do QR Code ou a chave de 44 dígitos">
+          <button class="btn" id="nf-read">Ler</button>
+        </div>
+        <div id="scanner" class="scanner hidden">
+          <video id="scanner-video" playsinline muted></video>
+          <button class="btn" id="scanner-stop">Cancelar</button>
+        </div>
+        <div id="nf-status" class="status"></div>
+      </div>
+
+      <form class="card" id="tx-form" autocomplete="off">
+        <h2 id="form-title">Novo lançamento</h2>
+        <div class="seg seg-full" id="tx-type">
+          <button type="button" data-type="gasto" class="on">Gasto</button>
+          <button type="button" data-type="entrada">Entrada</button>
+        </div>
+        <div class="grid">
+          <label>Data<input type="date" name="date" required></label>
+          <label>Valor (R$)<input type="text" name="amount" inputmode="decimal" placeholder="0,00" required></label>
+          <label class="span2">Descrição<input type="text" name="description" placeholder="Ex.: Compra do mês, Shimeji, Salário" list="desc-list"></label>
+          <label class="span2">Local / estabelecimento<input type="text" name="place" list="place-list"></label>
+          <label>Categoria<select name="category"></select></label>
+          <label><span id="paidby-label">Pago por</span><select name="paidBy"></select></label>
+          <label>Forma de pagamento<select name="payment"></select></label>
+          <label>Observação<input type="text" name="note"></label>
+        </div>
+        <div id="nf-attached" class="nf-attached hidden"></div>
+        <div id="form-warning" class="status warn hidden"></div>
+        <div class="btn-row">
+          <button type="submit" class="btn primary" id="form-submit">Salvar</button>
+          <button type="button" class="btn" id="form-cancel">Limpar</button>
+          <button type="button" class="btn danger hidden" id="form-delete">Excluir</button>
+        </div>
+        <datalist id="desc-list"></datalist>
+        <datalist id="place-list"></datalist>
+      </form>
+    </section>
+
+    <!-- IMPORTAR -->
+    <section id="tab-importar" class="panel">
+      <div class="card">
+        <h2>Importar extrato ou fatura</h2>
+        <p class="hint">Aceita <b>OFX</b> (recomendado — quase todo banco exporta) e <b>CSV</b>. Lançamentos que já foram importados antes são ignorados automaticamente.</p>
+        <label class="btn primary">Escolher arquivo<input type="file" id="imp-file" accept=".ofx,.qfx,.csv,.txt,.xml" hidden></label>
+        <div id="imp-status" class="status"></div>
+      </div>
+
+      <div class="card hidden" id="imp-config">
+        <h2>Como ler este arquivo</h2>
+        <div class="grid" id="csv-map"></div>
+        <div class="grid">
+          <label>Conta / cartão<input type="text" id="imp-account" placeholder="Ex.: Nubank Robs"></label>
+          <label>Pago por (padrão)<select id="imp-paidby"></select></label>
+          <label>Forma de pagamento (padrão)<select id="imp-payment"></select></label>
+          <label class="check"><input type="checkbox" id="imp-invert"> É fatura de cartão (compras aparecem positivas)</label>
+        </div>
+      </div>
+
+      <div class="card hidden" id="imp-review">
+        <div class="card-head">
+          <h2>Revisar</h2>
+          <label class="check"><input type="checkbox" id="imp-all" checked> todos</label>
+        </div>
+        <p class="hint" id="imp-summary"></p>
+        <div class="table-wrap"><table class="tx-table" id="imp-table"></table></div>
+        <div class="btn-row">
+          <button class="btn primary" id="imp-confirm">Importar</button>
+          <button class="btn" id="imp-cancel">Cancelar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- LISTA -->
+    <section id="tab-lista" class="panel">
+      <div class="card">
+        <div class="filters">
+          <input type="search" id="list-search" placeholder="Buscar descrição, local, categoria…">
+          <select id="list-type">
+            <option value="">Tudo</option>
+            <option value="gasto">Gastos</option>
+            <option value="entrada">Entradas</option>
+          </select>
+          <select id="list-cat"><option value="">Todas categorias</option></select>
+        </div>
+        <p class="hint">Mostrando o período selecionado no Painel: <b id="list-period"></b></p>
+        <div class="table-wrap"><table class="tx-table" id="list-table"></table></div>
+      </div>
+    </section>
+
+    <!-- AJUSTES -->
+    <section id="tab-ajustes" class="panel">
+      <div class="card">
+        <h2>Pessoas</h2>
+        <div class="grid">
+          <label>Pessoa 1<input type="text" id="person-0"></label>
+          <label>Pessoa 2<input type="text" id="person-1"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Categorias</h2>
+        <p class="hint">O grupo define o resumo do painel (Contas apê, Mercado, Outras compras).</p>
+        <div id="cat-list"></div>
+        <div class="paste-row">
+          <input type="text" id="cat-new" placeholder="Nova categoria">
+          <select id="cat-new-group"></select>
+          <button class="btn" id="cat-add">Adicionar</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Backup e dados</h2>
+        <p class="hint">Os dados ficam salvos neste navegador. Faça backup de vez em quando e use “Restaurar” para levar os dados para outro aparelho — a restauração junta sem duplicar.</p>
+        <div class="btn-row">
+          <button class="btn" id="backup-export">💾 Baixar backup</button>
+          <label class="btn">♻️ Restaurar backup<input type="file" id="backup-import" accept=".json" hidden></label>
+          <button class="btn" id="csv-export">📊 Exportar CSV (planilha)</button>
+          <button class="btn danger" id="wipe">Apagar tudo</button>
+        </div>
+        <div id="backup-status" class="status"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status"></div>
+  <div id="tooltip" class="tooltip" role="tooltip"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
