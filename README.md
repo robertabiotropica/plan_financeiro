@@ -85,6 +85,16 @@ Sem configuração, o app continua funcionando só no aparelho, como antes.
 
 ### Como ativar (uma vez, ~10 minutos, plano gratuito)
 
+> Dica: no console em português os menus podem estar recolhidos ou com outros
+> nomes. Os links diretos abaixo funcionam em qualquer idioma — se pedir, escolha
+> o projeto `mimimei`. Também dá para digitar o nome do produto na busca do topo.
+>
+> - Login: https://console.firebase.google.com/project/_/authentication/providers
+> - Domínios autorizados: https://console.firebase.google.com/project/_/authentication/settings
+> - Banco de dados: https://console.firebase.google.com/project/_/firestore
+> - Regras: https://console.firebase.google.com/project/_/firestore/rules
+> - Configurações do projeto: https://console.firebase.google.com/project/_/settings/general
+
 1. Acesse https://console.firebase.google.com → **Adicionar projeto** → nome
    `mimimei` → pode desativar o Google Analytics → **Criar projeto**.
 2. **Authentication** → *Vamos começar* → aba **Método de login**:
