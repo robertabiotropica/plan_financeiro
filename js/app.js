@@ -23,6 +23,9 @@ const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', '
 const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const SPLIT = 'Dividido 50/50';
+const HOUSE = 'Dividido com a casa'; // contas do apê: divididas por todas as pessoas da casa
+/** Parte do valor que é de vocês dois (contas da casa: só a fração do casal). */
+const ours = (t) => (t.paidBy === HOUSE ? (t.amount * 2) / store.houseSize : t.amount);
 
 function toast(msg) {
   const t = $('#toast');
@@ -38,7 +41,7 @@ function setStatus(el, msg, kind = '') {
 function options(list, selected) {
   return list.map((v) => `<option ${v === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
 }
-function peopleOptions() { return [...store.people, SPLIT]; }
+function peopleOptions() { return [...store.people, SPLIT, HOUSE]; }
 function download(name, content, type) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([content], { type }));
@@ -153,6 +156,7 @@ $('#period-next').addEventListener('click', () => shiftPeriod(1));
 function shareOf(t, person) {
   if (t.paidBy === person) return t.amount;
   if (t.paidBy === SPLIT) return t.amount / 2;
+  if (t.paidBy === HOUSE) return t.amount / store.houseSize;
   return 0;
 }
 
@@ -165,7 +169,7 @@ function renderDashboard() {
   const { from, to } = periodRange();
   if (!from || !to) return;
   const txs = txInRange(from, to);
-  const sum = (list) => list.reduce((s, t) => s + t.amount, 0);
+  const sum = (list) => list.reduce((s, t) => s + ours(t), 0);
   const gastos = txs.filter((t) => t.type === 'gasto');
   const entradas = txs.filter((t) => t.type === 'entrada');
   const tin = sum(entradas); const tout = sum(gastos); const bal = tin - tout;
@@ -184,7 +188,7 @@ function renderDashboard() {
     <thead><tr><th></th><th class="num">Entradas</th><th class="num">Gastos</th><th class="num">Balanço</th></tr></thead>
     <tbody>${rows.map((r) => `<tr><td><b>${esc(r.p)}</b></td><td class="num">${money(r.inn)}</td><td class="num">${money(r.out)}</td>
       <td class="num ${r.bal >= 0 ? 'pos' : 'neg'}">${money(r.bal)}</td></tr>`).join('')}</tbody></table>
-    <p class="hint" style="margin:8px 0 0">Lançamentos “${SPLIT}” contam metade para cada um.</p>`;
+    <p class="hint" style="margin:8px 0 0">“${SPLIT}” conta metade para cada um. “${HOUSE}” (contas do apê) conta 1/${store.houseSize} para cada um — só a parte de vocês entra nos totais.</p>`;
 
   // grupos
   const groupTotals = GROUPS.filter((g) => g !== 'Entradas').map((g) => ({
@@ -201,8 +205,8 @@ function renderTimeChart() {
     const txs = txInRange(b.from, b.to);
     return {
       ...b,
-      inn: txs.filter((t) => t.type === 'entrada').reduce((s, t) => s + t.amount, 0),
-      out: txs.filter((t) => t.type === 'gasto').reduce((s, t) => s + t.amount, 0),
+      inn: txs.filter((t) => t.type === 'entrada').reduce((s, t) => s + ours(t), 0),
+      out: txs.filter((t) => t.type === 'gasto').reduce((s, t) => s + ours(t), 0),
     };
   });
   const el = $('#chart-time');
@@ -264,7 +268,7 @@ function niceStep(raw) {
 
 function renderCategoryChart(gastos, total) {
   const by = {};
-  gastos.forEach((t) => { by[t.category || 'Sem categoria'] = (by[t.category || 'Sem categoria'] || 0) + t.amount; });
+  gastos.forEach((t) => { by[t.category || 'Sem categoria'] = (by[t.category || 'Sem categoria'] || 0) + ours(t); });
   const list = Object.entries(by).sort((a, b) => b[1] - a[1]);
   const el = $('#chart-cat');
   if (!list.length) { el.innerHTML = '<p class="empty">Nenhum gasto neste período.</p>'; return; }
@@ -312,6 +316,15 @@ function resetForm() {
 }
 $('#form-cancel').addEventListener('click', resetForm);
 
+// Conta do apê (aluguel, luz…) → sugere “Dividido com a casa”.
+function applyHouseDefault() {
+  if (editingId || formType !== 'gasto') return;
+  const house = store.groupOf(form.category.value) === 'Contas apê';
+  if (house) form.paidBy.value = HOUSE;
+  else if (form.paidBy.value === HOUSE) form.paidBy.value = store.me || store.people[0];
+}
+form.category.addEventListener('change', applyHouseDefault);
+
 function refreshDatalists() {
   const uniq = (arr) => [...new Set(arr.filter(Boolean))].slice(-200);
   $('#desc-list').innerHTML = uniq(store.transactions.map((t) => t.description)).map((v) => `<option value="${esc(v)}">`).join('');
@@ -323,6 +336,7 @@ function refreshDatalists() {
   if (editingId) return;
   const s = store.suggestCategory({ description: form.description.value, place: form.place.value, cnpj: attachedNf?.cnpj, type: formType });
   if (s) form.category.value = s;
+  applyHouseDefault();
 }));
 
 function editTx(id) {
@@ -436,6 +450,7 @@ function handleNf(nf) {
   if (nf.valor) form.amount.value = nf.valor.toFixed(2).replace('.', ',');
   if (nf.formaPagamento) form.payment.value = nf.formaPagamento;
   form.category.value = store.suggestCategory({ description: form.description.value, place, cnpj: nf.cnpj, type: 'gasto' });
+  applyHouseDefault();
   showAttachedNf(attachedNf);
   const missing = [];
   if (!nf.valor) missing.push('o <b>valor</b>');
@@ -744,7 +759,7 @@ function renderList() {
     .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, (t.nf?.itens || t.itens || []).map((i) => i.descricao).join(' ')]
       .join(' ').toLowerCase().includes(q))
     .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
-  const total = list.reduce((s, t) => s + (t.type === 'entrada' ? t.amount : -t.amount), 0);
+  const total = list.reduce((s, t) => s + (t.type === 'entrada' ? ours(t) : -ours(t)), 0);
   $('#list-table').innerHTML = list.length
     ? `<thead><tr><th>Data</th><th>Descrição</th><th class="col-cat">Categoria</th><th class="num">Valor</th></tr></thead><tbody>${
       list.map((t) => `<tr class="clickable" title="Toque para editar" data-id="${t.id}">
@@ -752,7 +767,7 @@ function renderList() {
         <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}${t.itens?.length ? `<span class="badge">🛒 ${t.itens.length} itens</span>` : ''}
           <span class="sub">${esc([t.place && t.place !== t.description ? t.place : '', t.paidBy, t.payment, t.createdByName && store.backendKind === 'cloud' ? `lançado por ${t.createdByName}` : ''].filter(Boolean).join(' · '))}</span></td>
         <td class="col-cat">${esc(t.category)}</td>
-        <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(t.amount)}<span class="sub only-mobile">${esc(t.category)}</span></td>
+        <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(ours(t))}${t.paidBy === HOUSE ? `<span class="sub">de ${money(t.amount)}</span>` : ''}<span class="sub only-mobile">${esc(t.category)}</span></td>
       </tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="2"><b>${list.length} lançamentos</b></td><td class="col-cat"></td><td class="num ${total >= 0 ? 'pos' : 'neg'}"><b>${money(total)}</b></td></tr></tfoot>`
     : '<tbody><tr><td class="empty">Nada por aqui neste período.</td></tr></tbody>';
@@ -773,6 +788,7 @@ $('#form-delete').addEventListener('click', () => {
 // ---------- ajustes ----------
 function renderSettings() {
   renderCard();
+  $('#house-size').value = store.houseSize;
   $('#person-0').value = store.people[0];
   $('#person-1').value = store.people[1];
   $('#cat-new-group').innerHTML = options(GROUPS, 'Outras compras');
@@ -787,6 +803,11 @@ function renderSettings() {
     $('button', row).addEventListener('click', () => { store.removeCategory(name); renderSettings(); });
   });
 }
+$('#house-size').addEventListener('change', (e) => {
+  store.setHouseSize(e.target.value);
+  e.target.value = store.houseSize;
+  toast(`Contas da casa divididas por ${store.houseSize}: cada um de vocês fica com 1/${store.houseSize}.`);
+});
 ['#person-0', '#person-1'].forEach((s) => $(s).addEventListener('change', () => {
   store.setPeople($('#person-0').value.trim(), $('#person-1').value.trim());
   toast('Nomes atualizados.');
@@ -806,15 +827,16 @@ $('#backup-import').addEventListener('change', async (e) => {
   if (!f) return;
   try {
     const n = store.mergeBackup(await f.text());
+    fixHouseSplit();
     setStatus($('#backup-status'), `${n} lançamento(s) novo(s) restaurado(s). Os que já existiam foram mantidos sem duplicar.`, 'ok');
     renderSettings();
   } catch (err) { setStatus($('#backup-status'), esc(err.message), 'err'); }
 });
 $('#csv-export').addEventListener('click', () => {
-  const head = ['Data', 'Tipo', 'Valor', 'Descrição', 'Local', 'Categoria', 'Grupo', 'Pago/Recebido por', 'Forma de pagamento', 'Origem', 'Chave NF', 'Observação'];
+  const head = ['Data', 'Tipo', 'Valor', 'Parte de vocês', 'Descrição', 'Local', 'Categoria', 'Grupo', 'Pago/Recebido por', 'Forma de pagamento', 'Origem', 'Chave NF', 'Observação'];
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [...store.transactions].sort((a, b) => a.date.localeCompare(b.date)).map((t) => [
-    fmtDate(t.date), t.type, t.amount.toFixed(2).replace('.', ','), t.description, t.place, t.category,
+    fmtDate(t.date), t.type, t.amount.toFixed(2).replace('.', ','), ours(t).toFixed(2).replace('.', ','), t.description, t.place, t.category,
     store.groupOf(t.category), t.paidBy, t.payment, sourceName(t.source), t.nf?.chave || '', t.note,
   ].map(cell).join(';'));
   download(`mimimei-${iso(new Date())}.csv`, `﻿${head.map(cell).join(';')}\n${lines.join('\n')}`, 'text/csv');
@@ -846,12 +868,17 @@ store.onChange(() => {
   }, 50);
 });
 
+function fixHouseSplit() {
+  const n = store.migrateHouseSplit(SPLIT, HOUSE);
+  if (n) toast(`${n} contas do apê corrigidas para “${HOUSE}” (÷${store.houseSize}).`);
+}
+if (store.backendKind === 'local') fixHouseSplit();
 resetForm();
 renderDashboard();
 initAccount({
   toast,
   showTab,
-  onAccountChange: () => { if (!editingId) resetForm(); renderDashboard(); },
+  onAccountChange: () => { fixHouseSplit(); if (!editingId) resetForm(); renderDashboard(); },
 });
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -207,6 +207,8 @@ export function openHousehold(id) {
         memory: d.memory || {},
         merchants: d.merchants || {},
         personOf: d.personOf || {},
+        houseSize: d.houseSize || 3,
+        migrations: d.migrations || {},
         householdName: d.name,
         memberNames: d.memberNames || {},
       });

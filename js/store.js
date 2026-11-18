@@ -57,6 +57,10 @@ function emptyState() {
     memory: {},
     // memória: CNPJ -> nome do estabelecimento
     merchants: {},
+    // quantas pessoas dividem as contas da casa (opção “Dividido com a casa”)
+    houseSize: 3,
+    // correções de dados já aplicadas
+    migrations: {},
   };
 }
 
@@ -140,9 +144,35 @@ export const store = {
   localData() { return load(); },
   clearLocalData() { localStorage.removeItem(KEY); },
   settings() {
-    return { people: state.people, categories: state.categories, memory: state.memory, merchants: state.merchants };
+    return {
+      people: state.people, categories: state.categories, memory: state.memory, merchants: state.merchants,
+      houseSize: state.houseSize || 3, migrations: state.migrations || {},
+    };
   },
-  defaultSettings() { const e = emptyState(); return { people: e.people, categories: e.categories, memory: {}, merchants: {} }; },
+  defaultSettings() {
+    const e = emptyState();
+    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {} };
+  },
+  get houseSize() { return Math.max(2, Number(state.houseSize) || 3); },
+  setHouseSize(n) {
+    state.houseSize = Math.max(2, Math.min(20, Math.round(Number(n)) || 3));
+    backend.saveSettings(this.settings());
+    emit();
+  },
+  /**
+   * Correção única: contas do apê importadas da planilha estavam como “Dividido 50/50”,
+   * mas são divididas com a casa toda. Roda uma vez por conta/aparelho.
+   */
+  migrateHouseSplit(SPLIT, HOUSE) {
+    if (state.migrations?.casaDividida || !state.transactions.length) return 0;
+    const fix = state.transactions.filter((t) => t.source === 'planilha' && t.paidBy === SPLIT
+      && this.groupOf(t.category) === 'Contas apê');
+    fix.forEach((t) => { t.paidBy = HOUSE; backend.patchTx(t.id, { paidBy: HOUSE }); });
+    state.migrations = { ...(state.migrations || {}), casaDividida: true };
+    backend.saveSettings(this.settings());
+    if (fix.length) emit();
+    return fix.length;
+  },
 
   categoriesFor(type) {
     return state.categories.filter((c) => (type === 'entrada') === (c.group === 'Entradas'));
