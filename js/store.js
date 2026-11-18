@@ -161,10 +161,10 @@ export const store = {
     if (!list) {
       // versão antiga guardava um único cartão em state.card
       const c = state.card || {};
-      list = [{ id: 'cartao', name: `Cartão ${c.owner || state.people[1]}`, owner: c.owner, closingDay: c.closingDay }];
+      list = [{ id: 'cartao', name: `Cartão ${c.owner || state.people[1] || state.people[0]}`, owner: c.owner, closingDay: c.closingDay }];
     }
     return list.map((c) => {
-      const owner = state.people.includes(c.owner) ? c.owner : state.people[1];
+      const owner = state.people.includes(c.owner) ? c.owner : (state.people[1] || state.people[0]);
       return {
         id: c.id,
         name: (c.name || '').trim() || `Cartão ${owner}`,
@@ -239,16 +239,51 @@ export const store = {
     return state.categories.find((c) => c.name === categoryName)?.group || 'Outras compras';
   },
 
-  setPeople(a, b) {
-    const old = [...state.people];
-    state.people = [a || 'Pessoa 1', b || 'Pessoa 2'];
-    const changed = [];
-    state.transactions.forEach((t) => {
-      const i = old.indexOf(t.paidBy);
-      if (i !== -1 && t.paidBy !== state.people[i]) { t.paidBy = state.people[i]; changed.push(t); }
-    });
+  /** Quantas vezes uma pessoa aparece (pagou, divide, é dona de cartão). */
+  usageOf(name) {
+    const tx = state.transactions.filter((t) => t.paidBy === name || (t.splitWith || []).includes(name)).length;
+    const cards = this.cards.filter((c) => c.owner === name).length;
+    return { tx, cards };
+  },
+  addPerson(name) {
+    const n = String(name || '').trim();
+    if (!n || state.people.some((p) => normalizeText(p) === normalizeText(n))) return false;
+    state.people = [...state.people, n];
     backend.saveSettings(this.settings());
-    changed.forEach((t) => backend.patchTx(t.id, { paidBy: t.paidBy }));
+    emit();
+    return true;
+  },
+  /** Renomeia em todo lugar: lançamentos, divisões, cartões e vínculo com logins. */
+  renamePerson(oldName, newName) {
+    const n = String(newName || '').trim();
+    if (!n || n === oldName) return false;
+    if (state.people.some((p) => p !== oldName && normalizeText(p) === normalizeText(n))) return false;
+    state.people = state.people.map((p) => (p === oldName ? n : p));
+    state.transactions.forEach((t) => {
+      const patch = {};
+      if (t.paidBy === oldName) patch.paidBy = n;
+      if ((t.splitWith || []).includes(oldName)) patch.splitWith = t.splitWith.map((x) => (x === oldName ? n : x));
+      if (Object.keys(patch).length) { Object.assign(t, patch); backend.patchTx(t.id, patch); }
+    });
+    state.cards = this.cards.map((c) => (c.owner === oldName ? { ...c, owner: n } : c));
+    const personOf = { ...(state.personOf || {}) };
+    Object.keys(personOf).forEach((uid) => { if (personOf[uid] === oldName) personOf[uid] = n; });
+    state.personOf = personOf;
+    backend.saveSettings({ ...this.settings(), personOf });
+    emit();
+    return true;
+  },
+  /** Só remove quem não tem lançamentos nem cartões (para nada ficar sem dono). */
+  removePerson(name) {
+    const u = this.usageOf(name);
+    if (u.tx || u.cards || state.people.length <= 1) return false;
+    state.people = state.people.filter((p) => p !== name);
+    const personOf = { ...(state.personOf || {}) };
+    Object.keys(personOf).forEach((uid) => { if (personOf[uid] === name) personOf[uid] = ''; });
+    state.personOf = personOf;
+    backend.saveSettings({ ...this.settings(), personOf });
+    emit();
+    return true;
   },
   addCategory(name, group) {
     if (!name || state.categories.some((c) => normalizeText(c.name) === normalizeText(name))) return false;

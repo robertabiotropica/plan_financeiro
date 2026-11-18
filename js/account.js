@@ -3,7 +3,7 @@ import { firebaseConfig } from './firebase-config.js';
 import {
   cloud, initCloud, watchAuth, signIn, signUp, signInGoogle, resetPassword, logout, friendlyError,
   openDefault, openHousehold, createHousehold, listHouseholds, createInvite, joinWithCode,
-  renameHousehold, setMyPerson, setMyName,
+  renameHousehold, setMyPerson, setMyName, setPersonOf,
 } from './cloud.js';
 import { store } from './store.js';
 
@@ -207,7 +207,14 @@ export async function renderCard() {
 
     <h3>Conta aberta</h3>
     <div class="acct-row"><select id="acct-switch" style="max-width:100%;flex:1"><option>${esc(h?.name || '…')}</option></select></div>
-    <div class="acct-row"><div class="who"><b>Membros</b><span>${members.map(([, n]) => esc(n)).join(', ') || '—'}</span></div></div>
+    <h3>Membros (logins com acesso)</h3>
+    ${members.map(([uid, n]) => {
+    const person = (store.state.personOf || {})[uid];
+    const isMe = uid === cloud.user.uid;
+    return `<div class="acct-row member" data-uid="${esc(uid)}"><div class="who"><b>${esc(n)}${isMe ? ' (você)' : ''}</b>
+        <span>${person ? `é “${esc(person)}” no Pago por` : 'ainda não ligado a uma pessoa'}</span></div>
+        ${person ? '' : `<button class="btn small" data-act="add-person" data-name="${esc(n)}">+ Adicionar como pessoa</button>`}</div>`;
+  }).join('') || '<p class="hint">—</p>'}
     <div class="acct-row"><div class="who"><b>Você é</b><span>usado como “Pago por” padrão nos seus lançamentos</span></div>
       <select id="acct-person"><option value="">—</option>${people.map((x) => `<option ${x === me ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
     <div class="btn-row" style="margin-top:12px">
@@ -230,6 +237,18 @@ export async function renderCard() {
   const run = async (fn) => { try { await fn(); } catch (e) { setStatus(st, friendlyError(e), 'err'); } };
   $('#acct-logout').addEventListener('click', () => run(async () => { await logout(); }));
   $('#acct-name').addEventListener('change', (e) => run(async () => { await setMyName(e.target.value.trim()); ui.toast('Nome atualizado.'); }));
+  card.querySelectorAll('[data-act=add-person]').forEach((b) => b.addEventListener('click', () => run(async () => {
+    const uid = b.closest('[data-uid]').dataset.uid;
+    let name = b.dataset.name;
+    if (store.people.includes(name)) { /* já existe: só liga */ } else if (!store.addPerson(name)) {
+      name = prompt('Nome dessa pessoa no app:', name);
+      if (!name || !store.addPerson(name.trim())) { ui.toast('Esse nome já existe ou está vazio.'); return; }
+      name = name.trim();
+    }
+    await setPersonOf(uid, name);
+    ui.toast(`${name} agora aparece no “Pago por”.`);
+    setTimeout(renderCard, 300);
+  })));
   $('#acct-person').addEventListener('change', (e) => run(async () => { await setMyPerson(e.target.value); ui.toast(e.target.value ? `Ok, você é ${e.target.value}.` : 'Ok.'); }));
   $('#acct-rename').addEventListener('click', () => run(async () => {
     const n = prompt('Novo nome da conta:', h.name);

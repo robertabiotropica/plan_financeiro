@@ -122,6 +122,7 @@
           <label class="span2">Local / estabelecimento<input type="text" name="place" list="place-list"></label>
           <label>Categoria<select name="category"></select></label>
           <label><span id="paidby-label">Pago por</span><select name="paidBy"></select></label>
+          <div class="span2 hidden" id="split-wrap"><span class="label-plain">Dividir entre</span><div id="split-people" class="checks"></div></div>
           <label>Forma de pagamento<select name="payment"></select></label>
           <label class="hidden" id="tx-card-wrap">Cartão<select name="card"></select></label>
           <label>Observação<input type="text" name="note"></label>
@@ -270,9 +271,11 @@
       <div class="card" id="account-card"></div>
       <div class="card">
         <h2>Pessoas</h2>
-        <div class="grid">
-          <label>Pessoa 1<input type="text" id="person-0"></label>
-          <label>Pessoa 2<input type="text" id="person-1"></label>
+        <p class="hint">Quem aparece no “Pago por”. Toque no nome para renomear (muda em todos os lançamentos).</p>
+        <div id="people-list"></div>
+        <div class="paste-row">
+          <input type="text" id="person-new" placeholder="Nome de uma nova pessoa">
+          <button class="btn" id="person-add" type="button">Adicionar pessoa</button>
         </div>
         <label style="max-width:260px">Pessoas que dividem as contas do apê<input type="number" id="house-size" min="2" max="20" inputmode="numeric"></label>
         <p class="hint" style="margin:6px 0 0">Usado na opção “Dividido com a casa”: só a parte de vocês entra nos totais.</p>

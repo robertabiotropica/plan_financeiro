@@ -55,7 +55,12 @@ salvos no próprio navegador, e dá para instalar na tela inicial do celular.
 **Lançamentos e Ajustes**
 - Lista do período com busca (inclusive pelos itens das notas) e filtros; toque para
   editar ou excluir.
-- Nomes das pessoas e categorias editáveis (cada categoria pertence a um grupo).
+- **Pessoas da conta**: adicione, renomeie (muda em todos os lançamentos) ou remova
+  (só quem não tem lançamentos). Membros que entram por convite podem virar pessoa
+  com um toque em *Ajustes → Membros*.
+- “Pago por” lista todas as pessoas; com mais de duas, “Dividido entre…” deixa
+  escolher quem divide.
+- Categorias editáveis (cada categoria pertence a um grupo).
 - Backup em JSON e restauração (junta sem duplicar), e exportação em CSV para abrir
   no Google Sheets/Excel.
 

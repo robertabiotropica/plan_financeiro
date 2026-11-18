@@ -240,6 +240,10 @@ export async function renameHousehold(name) {
 export async function setMyPerson(person) {
   await updateDoc(doc(db, 'households', current.id), { [`personOf.${user.uid}`]: person });
 }
+/** Liga o login de qualquer membro da conta a uma pessoa (ex.: quem entrou por convite). */
+export async function setPersonOf(uid, person) {
+  await updateDoc(doc(db, 'households', current.id), { [`personOf.${uid}`]: person });
+}
 
 // ---------- convites ----------
 export async function createInvite() {

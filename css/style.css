@@ -348,3 +348,8 @@ tr.settled td { opacity: .6; }
 .card-picker { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .card-picker .grow { flex: 1 1 150px; min-width: 0; }
 .card-picker select { font-weight: 600; }
+
+.checks { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
+.checks .check { font-size: 14px; color: var(--text); }
+.person-row input { padding: 7px 8px; }
+.person-row .sub { display: block; font-size: 12px; color: var(--text-3); margin-top: 3px; }
