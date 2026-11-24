@@ -368,3 +368,7 @@ footer.credit { padding: 14px 0; }
 .desc-link .edit-hint { font-size: 11px; opacity: .45; }
 tr.editing td { background: var(--accent-soft); }
 #card-form.is-editing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* filtros da Lista: busca numa linha, os três seletores lado a lado */
+.filters input[type=search] { flex: 1 1 100%; }
+.filters select { flex: 1 1 100px; min-width: 0; text-overflow: ellipsis; }

@@ -1281,16 +1281,34 @@ function renderList() {
   const cats = [...new Set(store.state.categories.map((c) => c.name))];
   const catSel = $('#list-cat');
   const cur = catSel.value;
-  catSel.innerHTML = `<option value="">Todas categorias</option>${options(cats, cur)}`;
+  catSel.innerHTML = `<option value="">Categorias</option>${options(cats, cur)}`;
   const q = $('#list-search').value.trim().toLowerCase();
   const type = $('#list-type').value;
-  const list = txInRange(from, to)
+  const inPeriod = txInRange(from, to);
+
+  // filtro “De quem”: pessoas da conta e nomes de “Outros” que têm parte em algum lançamento do período
+  const personSel = $('#list-person');
+  const curPerson = personSel.value;
+  const others = [...new Set(inPeriod.flatMap((t) => shares(t).map(([n]) => n)))]
+    .filter((n) => !store.people.includes(n) && n !== '—').sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const opt = (v, l) => `<option value="${esc(v)}" ${v === curPerson ? 'selected' : ''}>${esc(l)}</option>`;
+  personSel.innerHTML = `<option value="">Pessoas</option>
+    <optgroup label="Pessoas da conta">${store.people.map((p) => opt(p, p)).join('')}</optgroup>
+    ${others.length ? `<optgroup label="Outros">${others.map((n) => opt(n, n)).join('')}</optgroup>` : ''}`;
+  const who = personSel.value;
+  // com alguém escolhido, o valor de cada linha é a parte dessa pessoa
+  const valueOf = (t) => (who ? shareOf(t, who) : ours(t));
+
+  const list = inPeriod
     .filter((t) => !type || t.type === type)
     .filter((t) => !catSel.value || t.category === catSel.value)
+    .filter((t) => !who || shareOf(t, who) > 0.004)
     .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, (t.nf?.itens || t.itens || []).map((i) => i.descricao).join(' ')]
       .join(' ').toLowerCase().includes(q))
     .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
-  const total = list.reduce((s, t) => s + (t.type === 'entrada' ? ours(t) : -ours(t)), 0);
+  const total = list.reduce((s, t) => s + (t.type === 'entrada' ? valueOf(t) : -valueOf(t)), 0);
+  const gastos = list.filter((t) => t.type === 'gasto').reduce((s, t) => s + valueOf(t), 0);
+  const entradas = list.filter((t) => t.type === 'entrada').reduce((s, t) => s + valueOf(t), 0);
   $('#list-table').innerHTML = list.length
     ? `<thead><tr><th>Data</th><th>Descrição</th><th class="col-cat">Categoria</th><th class="num">Valor</th></tr></thead><tbody>${
       list.map((t) => `<tr class="clickable" title="Toque para editar" data-id="${t.id}">
@@ -1298,10 +1316,10 @@ function renderList() {
         <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}${isCardTx(t) ? `<span class="badge">💳 ${esc(store.cardOf(t).name)}</span>` : ''}${t.itens?.length ? `<span class="badge">🛒 ${t.itens.length} itens</span>` : ''}
           <span class="sub">${esc([t.place && t.place !== t.description ? t.place : '', paidByLabel(t), t.payment, t.createdByName && store.backendKind === 'cloud' ? `lançado por ${t.createdByName}` : ''].filter(Boolean).join(' · '))}</span></td>
         <td class="col-cat">${esc(t.category)}</td>
-        <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(ours(t))}${t.paidBy === HOUSE ? `<span class="sub">de ${money(t.amount)}</span>` : ''}<span class="sub only-mobile">${esc(t.category)}</span></td>
+        <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(valueOf(t))}${Math.abs(valueOf(t) - t.amount) > 0.004 ? `<span class="sub">de ${money(t.amount)}</span>` : ''}<span class="sub only-mobile">${esc(t.category)}</span></td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="2"><b>${list.length} lançamentos</b></td><td class="col-cat"></td><td class="num ${total >= 0 ? 'pos' : 'neg'}"><b>${money(total)}</b></td></tr></tfoot>`
-    : '<tbody><tr><td class="empty">Nada por aqui neste período.</td></tr></tbody>';
+      <tfoot><tr><td colspan="2"><b>${list.length} lançamentos</b>${who ? `<span class="sub">parte de ${esc(who)}: gastos ${money(gastos)}${entradas ? ` · entradas ${money(entradas)}` : ''}</span>` : ''}</td><td class="col-cat"></td><td class="num ${total >= 0 ? 'pos' : 'neg'}"><b>${money(total)}</b></td></tr></tfoot>`
+    : `<tbody><tr><td class="empty">${who ? `Nenhum lançamento de ${esc(who)} neste período.` : 'Nada por aqui neste período.'}</td></tr></tbody>`;
 }
 $('#list-table').addEventListener('click', (e) => {
   const tr = e.target.closest('tr[data-id]');
@@ -1314,7 +1332,7 @@ $('#form-delete').addEventListener('click', () => {
   resetForm();
   showTab('lista');
 });
-['#list-search', '#list-type', '#list-cat'].forEach((s) => $(s).addEventListener('input', renderList));
+['#list-search', '#list-type', '#list-cat', '#list-person'].forEach((s) => $(s).addEventListener('input', renderList));
 
 // ---------- ajustes ----------
 function renderSettings() {
