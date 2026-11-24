@@ -1289,8 +1289,13 @@ function renderList() {
   // filtro “De quem”: pessoas da conta e nomes de “Outros” que têm parte em algum lançamento do período
   const personSel = $('#list-person');
   const curPerson = personSel.value;
-  const others = [...new Set(inPeriod.flatMap((t) => shares(t).map(([n]) => n)))]
-    .filter((n) => !store.people.includes(n) && n !== '—').sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  // mesmos nomes do “Pago por”: pessoas da conta, nomes antigos que ainda aparecem em lançamentos
+  // e os nomes escritos em “Outros” (Thaís, Papis…)
+  const special = [SPLIT, HOUSE, OTHERS, '—', '', 'Casa (outros moradores)'];
+  const others = [...new Set([
+    ...inPeriod.map((t) => t.paidBy),
+    ...inPeriod.filter((t) => t.paidBy === OTHERS).flatMap((t) => otherNames(t)),
+  ])].filter((n) => n && !special.includes(n) && !store.people.includes(n)).sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const opt = (v, l) => `<option value="${esc(v)}" ${v === curPerson ? 'selected' : ''}>${esc(l)}</option>`;
   personSel.innerHTML = `<option value="">Pessoas</option>
     <optgroup label="Pessoas da conta">${store.people.map((p) => opt(p, p)).join('')}</optgroup>
@@ -1464,5 +1469,13 @@ initAccount({
   onAccountChange: () => { fixHouseSplit(); if (!editingId) resetForm(); renderDashboard(); },
 });
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // quando uma versão nova é publicada, recarrega uma vez para usar todos os arquivos novos juntos
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => reg.update()).catch(() => {});
 }
