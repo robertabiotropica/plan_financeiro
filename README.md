@@ -43,8 +43,12 @@ salvos no próprio navegador, e dá para instalar na tela inicial do celular.
   previsão de fechamento (“novembro deve fechar em ~R$ X”).
 - Entradas, gastos e saldo; balanço **por pessoa** (o que é “Dividido 50/50” conta
   metade para cada um).
-- Totais por grupo, como na planilha: **Contas apê, Mercado, Outras compras**, e
-  ranking de gastos por categoria.
+- **Gastos por categoria** agrupados (Contas apê, Mercado, Outras compras) com
+  subtotais, variação contra o período anterior e toque para abrir a Lista.
+- **Metas por categoria**: limite mensal (🎯 no painel ou em Ajustes), barra de
+  progresso e status — ok, atenção (90% ou acima do ritmo) e estourou.
+- **Por pessoa** em cartões (saldo, entradas × gastos, variação) e botão **+** para
+  lançar.
 
 **Cartões (faturas)**
 - Vários cartões, cada um com nome/banco, dono (Lari ou Robs) e dia de fechamento;
@@ -59,6 +63,19 @@ salvos no próprio navegador, e dá para instalar na tela inicial do celular.
 - Entrada rápida ou importação da fatura (CSV/OFX) escolhendo quem paga em cada linha.
 - No painel geral, gastos de “Outros” não contam como gastos de vocês, e o pagamento
   da fatura que aparece no extrato do banco vem desmarcado (para não contar duas vezes).
+
+**Acertos**
+- Quando alguém devolve o que deve, registre um **acerto** (pode ser parcial): ele
+  abate as dívidas do cartão da mais antiga para a mais nova e não conta como renda.
+- Ao importar o extrato do banco, Pix/transferências de quem deve são reconhecidos e
+  sugeridos como acerto. Também dá para registrar à mão na aba Cartão.
+
+**Contas fixas e parcelas**
+- “🔁 Repetir todo mês” transforma o lançamento em conta fixa: os próximos meses são
+  lançados sozinhos como “a conferir”, com o último valor como estimativa.
+  Ajustes lista as contas fixas e sugere as contas do apê do mês anterior.
+- Compra parcelada no cartão (ex.: 2/5) cria as próximas parcelas como “previstas”;
+  ao importar a fatura real, a parcela já prevista vem desmarcada.
 
 **Lançamentos e Ajustes**
 - Lista do período com busca (inclusive pelos itens das notas) e filtros; toque para
@@ -141,12 +158,16 @@ Sem configuração, o app continua funcionando só no aparelho, como antes.
 ### Testes
 
 ```bash
-npm test                      # leitores de nota, OFX e CSV
+npm install            # uma vez: Playwright, Firebase e firebase-tools
+npm test               # leitores de nota fiscal, OFX e CSV
+npm run test:e2e       # o app no navegador, com dados fictícios e data fixa (24/11/2026)
+npm run test:regras    # regras de segurança no emulador do Firebase (precisa de Java)
+npm run test:tudo      # os três
 ```
 
-As regras de segurança e o fluxo de login/convite foram testados com o emulador
-oficial (`firebase emulators:start --only auth,firestore`, abrindo o app em
-`http://localhost:8000/?emulador`).
+Os testes usam só dados fictícios (`tests/fixtures/`). Para testar o login à mão,
+rode os emuladores (`npx firebase emulators:start --only auth,firestore`) e abra o
+app em `http://localhost:8000/?emulador`.
 
 ## Limitações a saber
 
@@ -171,5 +192,5 @@ js/firebase-config.js  configuração do projeto Firebase
 firebase/           regras de segurança do banco de dados
 js/qr.js            leitura de QR Code (ZXing em WebAssembly, incluído em vendor/zxing)
 sw.js               funciona offline depois de aberto uma vez
-tests/              testes dos leitores: node tests/parsers.test.mjs
+tests/              testes (leitores, app no navegador e regras de segurança)
 ```

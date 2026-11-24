@@ -4,6 +4,14 @@
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 8000",
-    "test": "node tests/parsers.test.mjs"
+    "test": "node tests/parsers.test.mjs",
+    "test:e2e": "node --test tests/e2e.test.mjs",
+    "test:regras": "firebase emulators:exec --only auth,firestore --project demo-mimimei \"node tests/rules.test.mjs\"",
+    "test:tudo": "npm test && npm run test:e2e && npm run test:regras"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0",
+    "firebase": "12.7.0",
+    "firebase-tools": "14.27.0"
   }
 }
