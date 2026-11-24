@@ -1301,6 +1301,22 @@ function renderList() {
     <optgroup label="Pessoas da conta">${store.people.map((p) => opt(p, p)).join('')}</optgroup>
     ${others.length ? `<optgroup label="Outros">${others.map((n) => opt(n, n)).join('')}</optgroup>` : ''}`;
   const who = personSel.value;
+
+  // filtro “Pagamento”: formas usadas no período; no crédito, cada cartão separado (se houver mais de um)
+  const paySel = $('#list-payment');
+  const curPay = paySel.value;
+  const payKey = (t) => (t.payment ? `pay:${t.payment}` : 'none');
+  const order = (x) => (PAYMENTS.indexOf(x) === -1 ? 99 : PAYMENTS.indexOf(x));
+  const usedPays = [...new Set([...inPeriod.map((t) => t.payment).filter(Boolean),
+    ...(curPay.startsWith('pay:') ? [curPay.slice(4)] : [])])].sort((a, b) => order(a) - order(b));
+  const cardsUsed = store.cards.filter((c) => inPeriod.some((t) => store.cardOf(t)?.id === c.id));
+  const popt = (v, l) => `<option value="${esc(v)}" ${v === curPay ? 'selected' : ''}>${esc(l)}</option>`;
+  paySel.innerHTML = `<option value="">Pagamento</option>${usedPays.map((p) => popt(`pay:${p}`, p)).join('')}
+    ${cardsUsed.length > 1 ? `<optgroup label="Cartões">${cardsUsed.map((c) => popt(`card:${c.id}`, `💳 ${cardLabel(c)}`)).join('')}</optgroup>` : ''}
+    ${inPeriod.some((t) => !t.payment) ? popt('none', 'Sem forma informada') : ''}`;
+  const pay = paySel.value;
+  const matchPay = (t) => !pay || (pay.startsWith('card:') ? store.cardOf(t)?.id === pay.slice(5) : payKey(t) === pay);
+
   // com alguém escolhido, o valor de cada linha é a parte dessa pessoa
   const valueOf = (t) => (who ? shareOf(t, who) : ours(t));
 
@@ -1308,6 +1324,7 @@ function renderList() {
     .filter((t) => !type || t.type === type)
     .filter((t) => !catSel.value || t.category === catSel.value)
     .filter((t) => !who || shareOf(t, who) > 0.004)
+    .filter(matchPay)
     .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, (t.nf?.itens || t.itens || []).map((i) => i.descricao).join(' ')]
       .join(' ').toLowerCase().includes(q))
     .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
@@ -1323,7 +1340,7 @@ function renderList() {
         <td class="col-cat">${esc(t.category)}</td>
         <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(valueOf(t))}${Math.abs(valueOf(t) - t.amount) > 0.004 ? `<span class="sub">de ${money(t.amount)}</span>` : ''}<span class="sub only-mobile">${esc(t.category)}</span></td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="2"><b>${list.length} lançamentos</b>${who ? `<span class="sub">parte de ${esc(who)}: gastos ${money(gastos)}${entradas ? ` · entradas ${money(entradas)}` : ''}</span>` : ''}</td><td class="col-cat"></td><td class="num ${total >= 0 ? 'pos' : 'neg'}"><b>${money(total)}</b></td></tr></tfoot>`
+      <tfoot><tr><td colspan="2"><b>${list.length} lançamento${list.length === 1 ? '' : 's'}</b>${who ? `<span class="sub">parte de ${esc(who)}: gastos ${money(gastos)}${entradas ? ` · entradas ${money(entradas)}` : ''}</span>` : ''}</td><td class="col-cat"></td><td class="num ${total >= 0 ? 'pos' : 'neg'}"><b>${money(total)}</b></td></tr></tfoot>`
     : `<tbody><tr><td class="empty">${who ? `Nenhum lançamento de ${esc(who)} neste período.` : 'Nada por aqui neste período.'}</td></tr></tbody>`;
 }
 $('#list-table').addEventListener('click', (e) => {
@@ -1337,7 +1354,7 @@ $('#form-delete').addEventListener('click', () => {
   resetForm();
   showTab('lista');
 });
-['#list-search', '#list-type', '#list-cat', '#list-person'].forEach((s) => $(s).addEventListener('input', renderList));
+['#list-search', '#list-type', '#list-cat', '#list-person', '#list-payment'].forEach((s) => $(s).addEventListener('input', renderList));
 
 // ---------- ajustes ----------
 function renderSettings() {

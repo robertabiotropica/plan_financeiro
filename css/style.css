@@ -370,5 +370,8 @@ tr.editing td { background: var(--accent-soft); }
 #card-form.is-editing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 
 /* filtros da Lista: busca numa linha, os três seletores lado a lado */
-.filters input[type=search] { flex: 1 1 100%; }
-.filters select { flex: 1 1 100px; min-width: 0; text-overflow: ellipsis; }
+/* busca numa linha; os quatro seletores em duas linhas de dois (no computador, lado a lado) */
+.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.filters input[type=search] { grid-column: 1 / -1; }
+.filters select { width: 100%; min-width: 0; text-overflow: ellipsis; }
+@media (min-width: 721px) { .filters { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
