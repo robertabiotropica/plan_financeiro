@@ -408,3 +408,27 @@ tr.editing td { background: var(--accent-soft); }
 
 .settle-form { background: var(--surface-2); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 .sub.ok, td .ok { color: var(--good); }
+
+/* categorias com metas */
+.cat-group + .cat-group { margin-top: 14px; }
+.cat-group-head { display: flex; justify-content: space-between; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); padding: 4px 0 6px; border-bottom: 1px solid var(--border); }
+.cat-group-head b { color: var(--text); font-variant-numeric: tabular-nums; }
+.cat-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.cat-item:last-child { border-bottom: 0; }
+.cat-main { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%; background: none; border: 0; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
+.cat-main .name { font-size: 14px; }
+.cat-main .val { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cat-main .val span { font-size: 11px; margin-left: 4px; }
+.cat-item .track { height: 8px; background: var(--surface-2); border-radius: 4px; margin: 6px 0 4px; overflow: hidden; }
+.cat-item .fill { height: 100%; background: var(--bar-cat); border-radius: 4px; min-width: 2px; }
+.cat-item.has-goal.ok .fill { background: var(--good); }
+.cat-item.has-goal.warn .fill { background: #e0a100; }
+.cat-item.has-goal.over .fill { background: var(--bad); }
+.cat-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-2); }
+.cat-item.warn .goal-status { color: var(--warn-ink); font-weight: 600; }
+.cat-item.over .goal-status { color: var(--bad); font-weight: 600; }
+.cat-item.ok .goal-status { color: var(--good); }
+.cat-goal { width: 92px !important; flex: 0 0 92px; padding: 5px 6px; font-size: 13px; }
+.cat-meta > span:first-child { min-width: 0; }
+.goal-link { white-space: nowrap; color: var(--text-3); flex: 0 0 auto; }
+.cat-item.has-goal .goal-link { color: var(--accent); }

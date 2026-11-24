@@ -63,6 +63,8 @@ function emptyState() {
     migrations: {},
     // cartões de crédito acompanhados na aba Cartão: { id, name, owner, closingDay }
     cards: [{ id: 'cartao', name: 'Cartão Lari', owner: 'Lari', closingDay: 10 }],
+    // metas mensais por categoria: { Mercado: 1500, … }
+    budgets: {},
   };
 }
 
@@ -148,12 +150,22 @@ export const store = {
   settings() {
     return {
       people: state.people, categories: state.categories, memory: state.memory, merchants: state.merchants,
-      houseSize: state.houseSize || 3, migrations: state.migrations || {}, cards: this.cards,
+      houseSize: state.houseSize || 3, migrations: state.migrations || {}, cards: this.cards, budgets: state.budgets || {},
     };
   },
   defaultSettings() {
     const e = emptyState();
-    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {}, cards: e.cards };
+    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {}, cards: e.cards, budgets: {} };
+  },
+  /** Meta mensal de uma categoria (0 = sem meta). */
+  budgetOf(category) { return Number((state.budgets || {})[category]) || 0; },
+  setBudget(category, value) {
+    const v = Math.round((Number(value) || 0) * 100) / 100;
+    const b = { ...(state.budgets || {}) };
+    if (v > 0) b[category] = v; else b[category] = 0;
+    state.budgets = b;
+    backend.saveSettings(this.settings());
+    emit();
   },
   /** Cartões cadastrados (o primeiro é o padrão para gastos antigos no “Crédito”). */
   get cards() {

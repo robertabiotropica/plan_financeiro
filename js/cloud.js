@@ -210,6 +210,7 @@ export function openHousehold(id) {
         houseSize: d.houseSize || 3,
         card: d.card,
         cards: d.cards,
+        budgets: d.budgets || {},
         migrations: d.migrations || {},
         householdName: d.name,
         memberNames: d.memberNames || {},

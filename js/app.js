@@ -277,11 +277,10 @@ function renderDashboard() {
       <td class="num ${r.bal >= 0 ? 'pos' : 'neg'}">${money(r.bal)}</td></tr>`).join('')}</tbody></table>
     <p class="hint" style="margin:8px 0 0">“Dividido” conta a parte de cada pessoa que divide. “${HOUSE}” (contas do apê) conta 1/${store.houseSize} para cada pessoa da conta — só a parte de vocês entra nos totais. “${OTHERS}” não entra.</p>`;
 
-  // grupos
-  const groupTotals = GROUPS.filter((g) => g !== 'Entradas').map((g) => ({
-    g, v: sum(gastos.filter((t) => store.groupOf(t.category) === g)),
-  }));
-  $('#groups').innerHTML = `<div class="groups">${groupTotals.map(({ g, v }) => `<div><span>${esc(g)}</span><strong>${money(v)}</strong></div>`).join('')}</div>`;
+  // gastos do período anterior por categoria (para a variação de cada uma)
+  const prevByCat = {};
+  ptx.filter((t) => t.type === 'gasto').forEach((t) => { prevByCat[t.category || 'Sem categoria'] = (prevByCat[t.category || 'Sem categoria'] || 0) + ours(t); });
+  catCompare = { prevByCat, label: cmp.label };
 
   renderPaceChart();
   renderCategoryChart(gastos, tout);
@@ -355,6 +354,18 @@ function renderAlerts(periodTxs) {
   const noPay = periodTxs.filter((t) => t.type === 'gasto' && !t.payment && store.groupOf(t.category) !== 'Contas apê').length;
   if (noPay) items.push({ icon: '❓', html: `<b>${noPay}</b> gasto${noPay === 1 ? '' : 's'} sem forma de pagamento`, sub: 'neste período (fora as contas do apê) — toque para completar',
     go: () => { listPreset = { payment: 'none', type: 'gasto', hideHouse: true }; showTab('lista'); } });
+  // metas perto do limite ou estouradas
+  const factor = budgetFactor();
+  const spentBy = {};
+  periodTxs.filter((t) => t.type === 'gasto').forEach((t) => { spentBy[t.category] = (spentBy[t.category] || 0) + ours(t); });
+  store.categoriesFor('gasto').forEach((c) => {
+    const limit = store.budgetOf(c.name) * factor;
+    if (!limit) return;
+    const st = budgetStatus(spentBy[c.name] || 0, limit);
+    if (st.cls === 'ok') return;
+    items.push({ icon: '🎯', warn: true, html: `<b>${esc(c.name)}</b>: ${money(spentBy[c.name] || 0)} de ${money(limit)}`, sub: st.text,
+      go: () => { listPreset = { category: c.name, type: 'gasto' }; showTab('lista'); } });
+  });
   const noCat = periodTxs.filter((t) => t.type === 'gasto' && (!t.category || t.category === 'Outros gastos')).length;
   if (noCat) items.push({ icon: '🏷️', html: `<b>${noCat}</b> gasto${noCat === 1 ? '' : 's'} em “Outros gastos”`, sub: 'categorizar deixa o painel mais certeiro',
     go: () => { listPreset = { category: 'Outros gastos', type: 'gasto' }; showTab('lista'); } });
@@ -469,19 +480,83 @@ function niceStep(raw) {
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
 }
 
+// ---------- metas por categoria ----------
+let catCompare = { prevByCat: {}, label: '' };
+/** Quanto da meta mensal vale para o período escolhido (semana ≈ 7/30, ano = 12×…). */
+function budgetFactor() {
+  const { from, to } = periodRange();
+  if (period.mode === 'mes') return 1;
+  if (period.mode === 'ano') return 12;
+  return (daysBetween(from, to) + 1) / 30.44;
+}
+/** Situação de uma meta: ok / atenção / estourou, e se está acima do ritmo esperado. */
+function budgetStatus(spent, limit) {
+  const pct = limit ? spent / limit : 0;
+  const { from, to } = periodRange();
+  const today = todayIso();
+  let expected = 1;
+  if (today >= from && today <= to) expected = (daysBetween(from, today) + 1) / (daysBetween(from, to) + 1);
+  if (pct >= 1) return { cls: 'over', icon: '⛔', text: `estourou em ${money(spent - limit)}` };
+  if (pct >= 0.9) return { cls: 'warn', icon: '⚠️', text: `${Math.round(pct * 100)}% da meta` };
+  if (expected < 1 && pct > expected * 1.15) return { cls: 'warn', icon: '⚠️', text: `${Math.round(pct * 100)}% da meta — acima do ritmo` };
+  return { cls: 'ok', icon: '✓', text: `${Math.round(pct * 100)}% da meta` };
+}
+function askBudget(category) {
+  const cur = store.budgetOf(category);
+  const v = prompt(`Meta mensal de gastos para “${category}” (R$).\nDeixe vazio para tirar a meta.`, cur ? cur.toFixed(2).replace('.', ',') : '');
+  if (v === null) return;
+  const n = v.trim() ? Math.abs(parseMoney(v)) : 0;
+  if (v.trim() && !Number.isFinite(n)) { toast('Valor inválido.'); return; }
+  store.setBudget(category, n);
+  toast(n ? `Meta de ${category}: ${money(n)} por mês.` : `Meta de ${category} removida.`);
+  renderDashboard();
+}
+
+/** Gastos por categoria, agrupados (Contas apê / Mercado / Outras compras), com metas e variação. */
 function renderCategoryChart(gastos, total) {
+  const el = $('#chart-cat');
   const by = {};
   gastos.forEach((t) => { by[t.category || 'Sem categoria'] = (by[t.category || 'Sem categoria'] || 0) + ours(t); });
-  const list = Object.entries(by).sort((a, b) => b[1] - a[1]);
-  const el = $('#chart-cat');
-  if (!list.length) { el.innerHTML = '<p class="empty">Nenhum gasto neste período.</p>'; return; }
-  const max = list[0][1];
-  el.innerHTML = list.map(([name, v]) => `<div class="hbar" title="${esc(name)}: ${money(v)}">
-      <span class="name">${esc(name)}</span>
-      <div class="track"><div class="fill" style="width:${(v / max) * 100}%"></div></div>
-      <span class="val">${money(v)}<small>${Math.round((v / total) * 100)}%</small></span>
-    </div>`).join('');
+  const factor = budgetFactor();
+  // categorias com meta aparecem mesmo sem gasto no período
+  store.categoriesFor('gasto').forEach((c) => { if (store.budgetOf(c.name) && !(c.name in by)) by[c.name] = 0; });
+  const cats = Object.entries(by);
+  if (!cats.length) { el.innerHTML = '<p class="empty">Nenhum gasto neste período.</p>'; return; }
+  const max = Math.max(...cats.map(([, v]) => v), 1);
+  const groups = GROUPS.filter((g) => g !== 'Entradas').map((g) => {
+    const items = cats.filter(([n]) => store.groupOf(n) === g).sort((a, b) => b[1] - a[1]);
+    return { g, items, v: items.reduce((s2, [, v]) => s2 + v, 0) };
+  }).filter((x) => x.items.length);
+  const row = ([name, v]) => {
+    const limit = store.budgetOf(name) * factor;
+    const prev = catCompare.prevByCat[name] || 0;
+    const delta = prev > 0.005 && v > 0.005 ? (v - prev) / prev : null;
+    const deltaTxt = delta == null || Math.abs(delta) < 0.05 ? ''
+      : `<span class="${delta > 0 ? 'up-bad' : 'up-good'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(Math.round(delta * 100))}%</span>`;
+    const st = limit ? budgetStatus(v, limit) : null;
+    const width = limit ? Math.min(100, (v / limit) * 100) : (v / max) * 100;
+    return `<div class="cat-item${st ? ` has-goal ${st.cls}` : ''}" data-cat="${esc(name)}">
+      <button type="button" class="cat-main" data-act="open" title="Ver os lançamentos de ${esc(name)}">
+        <span class="name">${esc(name)}</span>
+        <span class="val">${money(v)} ${deltaTxt}</span>
+      </button>
+      <div class="track${limit ? ' goal' : ''}"><div class="fill" style="width:${width}%"></div></div>
+      <div class="cat-meta">
+        <span>${st ? `<span class="goal-status">${st.icon} ${esc(st.text)}</span> <span class="muted">· meta ${money(limit)}</span>` : `<span class="muted">${total ? Math.round((v / total) * 100) : 0}% dos gastos</span>`}</span>
+        <button type="button" class="link small-link goal-link" data-act="goal" title="${st ? 'Editar' : 'Definir'} a meta mensal">🎯 ${st ? 'editar' : 'meta'}</button>
+      </div>
+    </div>`;
+  };
+  el.innerHTML = groups.map((x) => `<div class="cat-group"><div class="cat-group-head"><span>${esc(x.g)}</span><b>${money(x.v)}</b></div>${x.items.map(row).join('')}</div>`).join('')
+    + `<p class="hint" style="margin:8px 0 0">Toque numa categoria para ver os lançamentos. ${catCompare.label ? `Variação ${esc(catCompare.label)}.` : ''}${factor !== 1 ? ` Metas ajustadas ao período (meta mensal × ${factor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}).` : ''}</p>`;
 }
+$('#chart-cat').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const cat = b.closest('[data-cat]').dataset.cat;
+  if (b.dataset.act === 'goal') askBudget(cat);
+  else { listPreset = { category: cat, type: 'gasto' }; showTab('lista'); }
+});
 
 // ---------- formulário de lançamento ----------
 const form = $('#tx-form');
@@ -1631,11 +1706,18 @@ function renderSettings() {
   const used = new Set(store.transactions.map((t) => t.category));
   $('#cat-list').innerHTML = store.state.categories.map((c) => `<div class="cat-row" data-name="${esc(c.name)}">
     <span>${esc(c.name)}</span>
+    ${c.group === 'Entradas' ? '' : `<input type="text" inputmode="decimal" class="cat-goal" placeholder="meta/mês" value="${store.budgetOf(c.name) ? store.budgetOf(c.name).toFixed(2).replace('.', ',') : ''}" aria-label="Meta mensal">`}
     <select>${options(GROUPS, c.group)}</select>
     <button class="btn small danger" ${used.has(c.name) ? 'disabled title="Em uso"' : ''}>✕</button></div>`).join('');
   $$('#cat-list .cat-row').forEach((row) => {
     const name = row.dataset.name;
     $('select', row).addEventListener('change', (e) => store.setCategoryGroup(name, e.target.value));
+    $('.cat-goal', row)?.addEventListener('change', (e) => {
+      const n = e.target.value.trim() ? Math.abs(parseMoney(e.target.value)) : 0;
+      store.setBudget(name, Number.isFinite(n) ? n : 0);
+      e.target.value = store.budgetOf(name) ? store.budgetOf(name).toFixed(2).replace('.', ',') : '';
+      toast(store.budgetOf(name) ? `Meta de ${name}: ${money(store.budgetOf(name))} por mês.` : `Meta de ${name} removida.`);
+    });
     $('button', row).addEventListener('click', () => { store.removeCategory(name); renderSettings(); });
   });
 }
