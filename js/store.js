@@ -294,8 +294,12 @@ export const store = {
     return fix.length;
   },
 
+  /** Categorias em ordem alfabética (ignora acentos e maiúsculas). */
+  get sortedCategories() {
+    return [...state.categories].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
+  },
   categoriesFor(type) {
-    return state.categories.filter((c) => (type === 'entrada') === (c.group === 'Entradas'));
+    return this.sortedCategories.filter((c) => (type === 'entrada') === (c.group === 'Entradas'));
   },
   groupOf(categoryName) {
     return state.categories.find((c) => c.name === categoryName)?.group || 'Outras compras';

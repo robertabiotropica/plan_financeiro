@@ -1692,7 +1692,7 @@ function renderList() {
   $('#list-period').textContent = periodLabel();
   $('#list-house-note').classList.toggle('hidden', !listHideHouse);
   $('#list-confirm-note').classList.toggle('hidden', !listOnlyConfirm);
-  const cats = [...new Set(store.state.categories.map((c) => c.name))];
+  const cats = [...new Set(store.sortedCategories.map((c) => c.name))];
   const catSel = $('#list-cat');
   const preset = listPreset;
   listPreset = null;
@@ -1841,7 +1841,7 @@ function renderSettings() {
   renderPeople();
   $('#cat-new-group').innerHTML = options(GROUPS, 'Outras compras');
   const used = new Set(store.transactions.map((t) => t.category));
-  $('#cat-list').innerHTML = store.state.categories.map((c) => `<div class="cat-row" data-name="${esc(c.name)}">
+  $('#cat-list').innerHTML = store.sortedCategories.map((c) => `<div class="cat-row" data-name="${esc(c.name)}">
     <span>${esc(c.name)}</span>
     ${c.group === 'Entradas' ? '' : `<input type="text" inputmode="decimal" class="cat-goal" placeholder="meta/mês" value="${store.budgetOf(c.name) ? store.budgetOf(c.name).toFixed(2).replace('.', ',') : ''}" aria-label="Meta mensal">`}
     <select>${options(GROUPS, c.group)}</select>
