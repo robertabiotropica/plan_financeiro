@@ -405,3 +405,6 @@ tr.editing td { background: var(--accent-soft); }
 .chart .crosshair { stroke: var(--text-3); stroke-width: 1; }
 .sw-prev { background: transparent; border: 2px dashed var(--text-3); width: 12px; height: 0; border-radius: 0; vertical-align: 3px; }
 .sw-proj { background: transparent; border: 2px dotted var(--series-out); width: 12px; height: 0; border-radius: 0; vertical-align: 3px; }
+
+.settle-form { background: var(--surface-2); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.sub.ok, td .ok { color: var(--good); }

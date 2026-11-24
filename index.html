@@ -182,7 +182,20 @@
       </div>
 
       <div class="card">
-        <h2>Quem vai pagar</h2>
+        <div class="card-head">
+          <h2>Quem vai pagar</h2>
+          <button type="button" class="btn small hidden" id="settle-open">🤝 Registrar pagamento recebido</button>
+        </div>
+        <form class="settle-form hidden" id="settle-form" autocomplete="off">
+          <div class="grid">
+            <label class="span2">Quem pagou<select id="settle-who"></select></label>
+            <label>Valor recebido (R$)<input type="text" name="amount" inputmode="decimal" required></label>
+            <label>Data<input type="date" name="date" required></label>
+            <label class="span2">Observação<input type="text" name="note" placeholder="Ex.: Pix, dinheiro…"></label>
+          </div>
+          <p class="hint">Pode ser parcial: o valor abate os gastos mais antigos primeiro.</p>
+          <div class="btn-row"><button type="submit" class="btn primary">Registrar</button><button type="button" class="btn" id="settle-cancel">Cancelar</button></div>
+        </form>
         <div id="fat-payers"></div>
       </div>
 
@@ -271,6 +284,7 @@
             <option value="">Tudo</option>
             <option value="gasto">Gastos</option>
             <option value="entrada">Entradas</option>
+            <option value="acerto">Acertos</option>
           </select>
           <select id="list-cat"><option value="">Categorias</option></select>
           <select id="list-person" aria-label="De quem é o gasto"><option value="">Pessoas</option></select>

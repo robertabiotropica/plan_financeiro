@@ -73,6 +73,7 @@ function otherNames(t) {
 }
 /** Quanto de um lançamento é de cada um: [[nome, valor], …] (soma = valor total). */
 function shares(t) {
+  if (t.type === 'acerto') return [];
   const a = t.amount;
   if (t.paidBy === SPLIT) { const w = splitPeople(t); return w.map((p) => [p, a / w.length]); }
   if (t.paidBy === HOUSE) {
@@ -332,22 +333,9 @@ function renderAlerts(periodTxs) {
   refreshOtherSpellings();
   const items = [];
   // 1) quem deve a quem (gastos de cartão ainda não acertados, de qualquer fatura)
-  const debts = new Map();
-  store.transactions.forEach((t) => {
-    const card = store.cardOf(t);
-    if (!card || t.settled) return;
-    debtsOf(t, card).forEach(([who, v]) => {
-      if (who === 'Casa (outros moradores)') return;
-      const k = `${who}→${card.owner}`;
-      const d = debts.get(k) || { who, owner: card.owner, v: 0, card, fat: '' };
-      d.v += v;
-      const f = faturaOf(t.date, card);
-      if (f > d.fat) { d.fat = f; d.card = card; }
-      debts.set(k, d);
-    });
-  });
-  [...debts.values()].filter((d) => d.v > 0.004).sort((a, b) => b.v - a.v).forEach((d) => {
-    items.push({ icon: '🤝', html: `<b>${esc(d.who)}</b> deve <b>${money(d.v)}</b> a ${esc(d.owner)}`, sub: 'gastos no cartão ainda não acertados',
+  [...computeLedger().pairs.values()].filter((d) => d.pending > 0.004).sort((a, b) => b.pending - a.pending).forEach((d) => {
+    items.push({ icon: '🤝', html: `<b>${esc(d.who)}</b> deve <b>${money(d.pending)}</b> a ${esc(d.owner)}`,
+      sub: d.applied > 0.004 ? `já pagou ${money(d.applied)} de ${money(d.debt)}` : 'gastos no cartão ainda não acertados',
       go: () => { selectCard(d.card.id); fatura = d.fat; fatFilterPreset = d.who; showTab('cartao'); } });
   });
   // 2) fatura aberta de cada cartão
@@ -581,6 +569,12 @@ function refreshDatalists() {
 function editTx(id, { full = false } = {}) {
   const t = store.transactions.find((x) => x.id === id);
   if (!t) return;
+  if (t.type === 'acerto') {
+    if (confirm(`Acerto de ${money(t.amount)}: ${t.from} → ${t.to} em ${fmtDate(t.date)}.\n\nExcluir este acerto? (o valor volta a ficar pendente)`)) {
+      store.remove(t.id); toast('Acerto excluído.'); renderList();
+    }
+    return;
+  }
   if (!full && isCardTx(t)) { startCardEdit(id); return; }
   showTab('lancar');
   resetForm();
@@ -895,6 +889,59 @@ function shiftFatura(dir) {
 $('#fat-prev').addEventListener('click', () => shiftFatura(-1));
 $('#fat-next').addEventListener('click', () => shiftFatura(1));
 
+/** Nome “oficial” de alguém (pessoa da conta ou grafia mais usada em Outros). */
+function canonName(n) {
+  const k = normalizeText(n);
+  return store.people.find((p) => normalizeText(p) === k) || otherSpellings.get(k) || String(n || '').trim();
+}
+/**
+ * Razão de acertos: para cada par (quem deve → dono do cartão), soma as dívidas dos gastos
+ * no cartão e abate os pagamentos registrados (acertos), do gasto mais antigo para o mais novo.
+ * Gastos marcados “acertado” já contam como pagos por inteiro.
+ */
+function computeLedger() {
+  const pairs = new Map();
+  const paidOn = new Map(); // `${id}|${nome}` → valor abatido por acertos
+  const pair = (who, owner) => {
+    const k = `${who}→${owner}`;
+    if (!pairs.has(k)) pairs.set(k, { who, owner, debts: [], paid: 0, debt: 0, applied: 0, card: null, fat: '' });
+    return pairs.get(k);
+  };
+  store.transactions.forEach((t) => {
+    const card = store.cardOf(t);
+    if (!card || t.settled) return;
+    debtsOf(t, card).forEach(([who, v]) => {
+      if (who === 'Casa (outros moradores)' || v < 0.005) return;
+      const p = pair(who, card.owner);
+      p.debts.push({ t, v, card });
+      p.debt += v;
+    });
+  });
+  store.transactions.filter((t) => t.type === 'acerto').forEach((t) => {
+    pair(canonName(t.from), canonName(t.to)).paid += t.amount;
+  });
+  pairs.forEach((p) => {
+    let left = p.paid;
+    p.debts.sort((a, b) => a.t.date.localeCompare(b.t.date)).forEach((d) => {
+      const use = Math.min(left, d.v);
+      if (use > 0) { paidOn.set(`${d.t.id}|${p.who}`, (paidOn.get(`${d.t.id}|${p.who}`) || 0) + use); left -= use; p.applied += use; }
+      if (d.v - use > 0.004) {
+        const f = faturaOf(d.t.date, d.card);
+        if (f > p.fat) { p.fat = f; p.card = d.card; }
+      }
+    });
+    p.pending = p.debt - p.applied;
+    p.credit = Math.max(0, p.paid - p.applied); // pagou a mais (fica de crédito)
+    if (!p.card && p.debts.length) { p.card = p.debts[p.debts.length - 1].card; p.fat = faturaOf(p.debts[p.debts.length - 1].t.date, p.card); }
+  });
+  return { pairs, paidOn };
+}
+/** Quem deve algo a alguém agora (para os formulários de acerto). */
+function pendingPairs() {
+  refreshOtherSpellings();
+  return [...computeLedger().pairs.values()].filter((p) => p.pending > 0.004).sort((a, b) => b.pending - a.pending);
+}
+
 /** Quanto cada pessoa deve ao dono do cartão por um gasto (todas as partes que não são dele). */
 function debtsOf(t, card = store.cardOf(t) || curCard()) {
   return shares(t).filter(([n]) => n !== card.owner);
@@ -969,12 +1016,17 @@ function renderFatura() {
     .sort((a, b) => (b.date + (b.createdAt || '')).localeCompare(a.date + (a.createdAt || '')));
   const total = all.reduce((s, t) => s + t.amount, 0);
 
-  // parte de cada pessoa na fatura (quem divide entra só com a sua parte)
+  // parte de cada pessoa na fatura (quem divide entra só com a sua parte);
+  // o que foi pago por acertos registrados é abatido do gasto mais antigo para o mais novo
+  const { paidOn } = computeLedger();
   const per = new Map();
   all.forEach((t) => shares(t).forEach(([n, v]) => {
     const g = per.get(n) || { total: 0, pending: 0, settled: 0, n: 0 };
     g.total += v; g.n++;
-    if (n !== card.owner) { if (t.settled) g.settled += v; else g.pending += v; }
+    if (n !== card.owner) {
+      const paid = t.settled ? v : Math.min(v, paidOn.get(`${t.id}|${n}`) || 0);
+      g.settled += paid; g.pending += v - paid;
+    }
     per.set(n, g);
   }));
   const settledTotal = [...per.values()].reduce((s, g) => s + g.settled, 0);
@@ -988,6 +1040,7 @@ function renderFatura() {
 
   const rank = (n) => (n === card.owner ? 0 : store.people.includes(n) ? 1 : 2);
   const rows = [...per.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].total - a[1].total);
+  renderSettleForm(card);
   $('#fat-payers').innerHTML = all.length
     ? rows.map(([n, g]) => {
       const isOther = rank(n) === 2 && n !== 'Casa (outros moradores)';
@@ -1016,11 +1069,12 @@ function renderFatura() {
     ? `<thead><tr><th>Data</th><th>Descrição / tipo</th><th class="num">Valor</th><th>Quem paga</th></tr></thead><tbody>${
       list.map((t) => {
         const debt = debtsOf(t, card).length > 0;
+        const partial = t.settled ? 0 : debtsOf(t, card).reduce((s2, [n]) => s2 + (paidOn.get(`${t.id}|${n}`) || 0), 0);
         return `<tr data-id="${t.id}" class="${t.settled ? 'settled' : ''}${t.id === editingCardTx ? ' editing' : ''}">
         <td>${fmtDate(t.date).slice(0, 5)}</td>
         <td><button type="button" class="desc-link" data-act="edit" title="Editar este gasto">${esc(t.description || t.place || '—')} <span class="edit-hint">✏️</span></button>${t.installment ? ` <span class="badge">${esc(t.installment)}</span>` : ''}
           <span class="sub">${esc(t.category)}${t.paidBy === OTHERS ? ` · ${esc(joinNames(otherNames(t)))}` : ''}</span></td>
-        <td class="num">${money(t.amount)}</td>
+        <td class="num">${money(t.amount)}${partial > 0.004 ? `<span class="sub ok">pago ${money(partial)}</span>` : ''}</td>
         <td><select class="payer" aria-label="Quem paga">${payerOpts(t)}</select>
           ${debt ? `<label class="settle"><input type="checkbox" class="settled-cb" ${t.settled ? 'checked' : ''}> acertado</label>` : ''}</td>
       </tr>`;
@@ -1074,6 +1128,43 @@ $('#fat-payers').addEventListener('click', (e) => {
   toast(`“${old}” agora é “${novo}” em ${n} gasto${n === 1 ? '' : 's'}.`);
   renderFatura();
 });
+
+// registrar pagamento recebido (acerto): abate o que a pessoa deve
+function renderSettleForm(card) {
+  const pend = pendingPairs().filter((p) => p.owner === card.owner);
+  $('#settle-open').classList.toggle('hidden', !pend.length);
+  if (!pend.length) $('#settle-form').classList.add('hidden');
+  const sel = $('#settle-who');
+  const keep = sel.value;
+  sel.innerHTML = pend.map((p) => `<option value="${esc(p.who)}" ${p.who === keep ? 'selected' : ''}>${esc(p.who)} — deve ${money(p.pending)}</option>`).join('');
+}
+$('#settle-open').addEventListener('click', () => {
+  const f = $('#settle-form');
+  f.classList.toggle('hidden');
+  if (!f.classList.contains('hidden')) {
+    f.date.value = iso(new Date());
+    const p = pendingPairs().find((x) => x.owner === curCard().owner && x.who === $('#settle-who').value);
+    f.amount.value = p ? p.pending.toFixed(2).replace('.', ',') : '';
+    f.amount.focus();
+  }
+});
+$('#settle-who').addEventListener('change', () => {
+  const p = pendingPairs().find((x) => x.owner === curCard().owner && x.who === $('#settle-who').value);
+  if (p) $('#settle-form').amount.value = p.pending.toFixed(2).replace('.', ',');
+});
+$('#settle-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const amount = Math.abs(parseMoney(f.amount.value));
+  if (!Number.isFinite(amount) || !amount) { toast('Informe o valor recebido.'); return; }
+  const who = $('#settle-who').value; const owner = curCard().owner;
+  store.add({ type: 'acerto', date: f.date.value, amount: Math.round(amount * 100) / 100, from: who, to: owner,
+    description: `Acerto: ${who} → ${owner}`, category: '', paidBy: '', source: 'manual', note: f.note.value.trim() });
+  toast(`Registrado: ${who} pagou ${money(amount)} a ${owner}.`);
+  f.reset(); f.classList.add('hidden');
+  renderFatura();
+});
+$('#settle-cancel').addEventListener('click', () => $('#settle-form').classList.add('hidden'));
 
 // formulário do cartão: adicionar ou editar um gasto
 const cform = $('#card-form');
@@ -1315,6 +1406,8 @@ function buildImport() {
   }
   const card = importKind === 'cartao';
   const icard = importCard();
+  const pend = card ? [] : pendingPairs();
+  imp.pend = pend;
   const paidBy = card ? icard.owner : $('#imp-paidby').value;
   const payment = card ? 'Crédito' : $('#imp-payment').value;
   imp.items = parsed.map((p) => {
@@ -1326,7 +1419,18 @@ function buildImport() {
     const skip = card ? (type === 'entrada' ? 'crédito na fatura (pagamento ou estorno)' : '')
       : (type === 'gasto' && FATURA_PAYMENT.test(p.description) ? 'pagamento da fatura — os gastos já estão na aba Cartão' : '');
     const inst = p.description.match(/(?:parc(?:ela)?\.?\s*)?\b(\d{1,2})\s*\/\s*(\d{1,2})\b/i);
+    // entrada de alguém que deve (ex.: “Pix recebido Thaís”) → sugere registrar como acerto
+    let settle = null;
+    if (!card && type === 'entrada') {
+      const desc = ` ${normalizeText(p.description)} `;
+      const hit = pend.find((x) => {
+        const k = normalizeText(x.who);
+        return k.length >= 3 && (desc.includes(` ${k} `) || desc.includes(` ${k.split(' ')[0]} `));
+      });
+      if (hit) settle = { from: hit.who, to: hit.owner };
+    }
     return {
+      settle,
       tx: {
         type, date: p.date, amount, description: p.description, place: '',
         category: store.suggestCategory({ description: p.description, type }),
@@ -1347,7 +1451,7 @@ function renderImportTable() {
   const fresh = items.filter((i) => !i.already);
   const dup = items.length - fresh.length;
   const sim = items.filter((i) => i.similar).length;
-  $('#imp-summary').innerHTML = `${items.length} lançamentos no arquivo · <b>${fresh.length} novos</b>${dup ? ` · ${dup} já importados antes (ignorados)` : ''}${sim ? ` · <span class="badge warn">${sim} parecem já ter sido lançados por nota fiscal ou à mão — vêm desmarcados</span>` : ''}`;
+  $('#imp-summary').innerHTML = `${items.length} lançamentos no arquivo · <b>${fresh.length} novos</b>${dup ? ` · ${dup} já importados antes (ignorados)` : ''}${sim ? ` · <span class="badge warn">${sim} parecem já ter sido lançados por nota fiscal ou à mão — vêm desmarcados</span>` : ''}${items.some((i) => i.settle && !i.already) ? ` · <span class="badge">🤝 ${items.filter((i) => i.settle && !i.already).length} reconhecido(s) como acerto — não contam como renda</span>` : ''}`;
   const card = importKind === 'cartao';
   const payerSelect = (t) => payerChoices(importCard()).map((c) => `<option value="${esc(c.value)}" ${c.value === payerValue(t, importCard()) ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
   $('#imp-table').innerHTML = `<thead><tr><th></th><th>Data</th><th>Descrição</th><th>${card ? 'Tipo / quem paga' : 'Categoria'}</th><th class="num">Valor</th></tr></thead><tbody>${
@@ -1358,7 +1462,11 @@ function renderImportTable() {
         <td><input type="checkbox" class="imp-inc" ${it.include ? 'checked' : ''}></td>
         <td>${fmtDate(t.date)}</td>
         <td>${esc(t.description)}${it.similar ? `<span class="badge warn" title="${esc(it.similar.description || '')}">parecido com ${sourceName(it.similar.source)} de ${fmtDate(it.similar.date)}</span>` : ''}${it.skip ? `<span class="badge warn">${esc(it.skip)}</span>` : ''}</td>
-        <td><select class="imp-cat">${options(store.categoriesFor(t.type).map((c) => c.name), t.category)}</select>
+        <td><select class="imp-cat ${it.settle ? 'hidden' : ''}">${options(store.categoriesFor(t.type).map((c) => c.name), t.category)}</select>
+          ${!card && t.type === 'entrada' && imp.pend.length ? `<select class="imp-settle" style="margin-top:4px" aria-label="É um acerto?">
+            <option value="">É entrada (renda)</option>
+            ${imp.pend.map((x, k) => `<option value="${k}" ${it.settle && it.settle.from === x.who && it.settle.to === x.owner ? 'selected' : ''}>🤝 Acerto: ${esc(x.who)} → ${esc(x.owner)} (deve ${money(x.pending)})</option>`).join('')}
+          </select>` : ''}
           ${card && t.type === 'gasto' ? `<select class="imp-payer" style="margin-top:4px">${payerSelect(t)}</select><input type="text" class="imp-other ${t.paidBy === OTHERS ? '' : 'hidden'}" placeholder="Quem? (nome)" value="${esc(t.otherName || '')}" style="margin-top:4px">` : ''}</td>
         <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(t.amount)}</td>
       </tr>`;
@@ -1372,6 +1480,11 @@ function renderImportTable() {
       if (e.target.value === OTHERS) $('.imp-other', tr).focus(); else it.tx.otherName = '';
     });
     $('.imp-other', tr)?.addEventListener('input', (e) => { it.tx.otherName = e.target.value.trim(); });
+    $('.imp-settle', tr)?.addEventListener('change', (e) => {
+      const x = imp.pend[Number(e.target.value)];
+      it.settle = e.target.value === '' ? null : { from: x.who, to: x.owner };
+      renderImportTable();
+    });
     $('.imp-cat', tr).addEventListener('change', (e) => {
       it.tx.category = e.target.value;
       // aplica a mesma categoria às outras linhas com a mesma descrição
@@ -1398,7 +1511,10 @@ $('#imp-all').addEventListener('change', (e) => {
   renderImportTable();
 });
 $('#imp-confirm').addEventListener('click', () => {
-  const list = imp.items.filter((i) => i.include && !i.already).map((i) => i.tx);
+  // entradas marcadas como acerto viram registro de acerto (não contam como renda)
+  const list = imp.items.filter((i) => i.include && !i.already).map((i) => (i.settle
+    ? { ...i.tx, type: 'acerto', from: i.settle.from, to: i.settle.to, category: '', paidBy: '', payment: i.tx.payment, description: i.tx.description }
+    : i.tx));
   const n = store.addMany(list);
   toast(`${n} lançamento(s) importado(s).`);
   const wasCard = importKind === 'cartao';
@@ -1466,18 +1582,18 @@ function renderList() {
   const matchPay = (t) => !pay || (pay.startsWith('card:') ? store.cardOf(t)?.id === pay.slice(5) : payKey(t) === pay);
 
   // com alguém escolhido, o valor de cada linha é a parte dessa pessoa
-  const valueOf = (t) => (who ? shareOf(t, who) : ours(t));
+  const valueOf = (t) => (t.type === 'acerto' ? t.amount : who ? shareOf(t, who) : ours(t));
 
   const list = inPeriod
     .filter((t) => !type || t.type === type)
     .filter((t) => !catSel.value || t.category === catSel.value)
-    .filter((t) => !who || shareOf(t, who) > 0.004)
+    .filter((t) => !who || (t.type === 'acerto' ? [canonName(t.from), canonName(t.to)].includes(who) : shareOf(t, who) > 0.004))
     .filter(matchPay)
     .filter((t) => !listHideHouse || store.groupOf(t.category) !== 'Contas apê')
     .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, (t.nf?.itens || t.itens || []).map((i) => i.descricao).join(' ')]
       .join(' ').toLowerCase().includes(q))
     .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
-  const total = list.reduce((s, t) => s + (t.type === 'entrada' ? valueOf(t) : -valueOf(t)), 0);
+  const total = list.reduce((s, t) => s + (t.type === 'acerto' ? 0 : t.type === 'entrada' ? valueOf(t) : -valueOf(t)), 0);
   const gastos = list.filter((t) => t.type === 'gasto').reduce((s, t) => s + valueOf(t), 0);
   const entradas = list.filter((t) => t.type === 'entrada').reduce((s, t) => s + valueOf(t), 0);
   $('#list-table').innerHTML = list.length
@@ -1487,7 +1603,7 @@ function renderList() {
         <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}${isCardTx(t) ? `<span class="badge">💳 ${esc(store.cardOf(t).name)}</span>` : ''}${t.itens?.length ? `<span class="badge">🛒 ${t.itens.length} itens</span>` : ''}
           <span class="sub">${esc([t.place && t.place !== t.description ? t.place : '', paidByLabel(t), t.payment, t.createdByName && store.backendKind === 'cloud' ? `lançado por ${t.createdByName}` : ''].filter(Boolean).join(' · '))}</span></td>
         <td class="col-cat">${esc(t.category)}</td>
-        <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'entrada' ? '+' : '−'}${money(valueOf(t))}${Math.abs(valueOf(t) - t.amount) > 0.004 ? `<span class="sub">de ${money(t.amount)}</span>` : ''}<span class="sub only-mobile">${esc(t.category)}</span></td>
+        <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'acerto' ? '🤝 ' : t.type === 'entrada' ? '+' : '−'}${money(valueOf(t))}${t.type === 'acerto' ? '<span class="sub">acerto (não conta)</span>' : ''}${t.type !== 'acerto' && Math.abs(valueOf(t) - t.amount) > 0.004 ? `<span class="sub">de ${money(t.amount)}</span>` : ''}<span class="sub only-mobile">${esc(t.category)}</span></td>
       </tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="2"><b>${list.length} lançamento${list.length === 1 ? '' : 's'}</b>${who ? `<span class="sub">parte de ${esc(who)}: gastos ${money(gastos)}${entradas ? ` · entradas ${money(entradas)}` : ''}</span>` : ''}</td><td class="col-cat"></td><td class="num ${total >= 0 ? 'pos' : 'neg'}"><b>${money(total)}</b></td></tr></tfoot>`
     : `<tbody><tr><td class="empty">${who ? `Nenhum lançamento de ${esc(who)} neste período.` : 'Nada por aqui neste período.'}</td></tr></tbody>`;
