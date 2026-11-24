@@ -361,3 +361,10 @@ tr.settled td { opacity: .6; }
 }
 footer.credit { padding: 14px 0; }
 .login-box .credit { padding-top: 6px; }
+
+.kpi-sub { display: block; font-size: 11px; color: var(--text-2); margin-top: 2px; }
+.payer-row .num small.ok { color: var(--good); }
+.small-link { font-size: 12px; text-decoration: none; padding: 0 2px; }
+.desc-link .edit-hint { font-size: 11px; opacity: .45; }
+tr.editing td { background: var(--accent-soft); }
+#card-form.is-editing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }

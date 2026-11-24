@@ -170,7 +170,7 @@
       </div>
 
       <div class="kpis kpis-2">
-        <div class="kpi k-out"><span id="fat-total-label">Total da fatura</span><strong id="fat-total"></strong></div>
+        <div class="kpi k-out"><span id="fat-total-label">Total da fatura</span><strong id="fat-total"></strong><small id="fat-total-sub" class="kpi-sub"></small></div>
         <div class="kpi k-in"><span id="fat-receive-label">A receber</span><strong id="fat-receive"></strong></div>
       </div>
 
@@ -181,7 +181,7 @@
 
       <form class="card" id="card-form" autocomplete="off">
         <div class="card-head">
-          <h2>Novo gasto no cartão</h2>
+          <h2 id="card-form-title">Novo gasto no cartão</h2>
           <button type="button" class="btn small" id="card-import">📥 Importar fatura</button>
         </div>
         <div class="grid">
@@ -193,9 +193,14 @@
         </div>
         <label class="label-plain">Quem vai pagar</label>
         <div class="seg seg-full" id="card-payer"></div>
-        <label class="hidden" id="card-other-wrap">Quem? (nome)<input type="text" name="otherName" list="other-list" placeholder="Ex.: Mãe, Ana, Pedro"></label>
+        <label class="hidden" id="card-other-wrap">Quem? (nome)<input type="text" name="otherName" list="other-list" placeholder="Ex.: Thaís — ou “Thaís e Lari” para dividir">
+          <span class="hint" style="margin:2px 0 0">Vários nomes com “e” ou vírgula dividem o valor em partes iguais; a parte de quem é da conta conta para essa pessoa.</span></label>
+        <label class="hidden" id="card-move-wrap">Cartão<select name="cardId"></select></label>
         <div class="btn-row" style="margin-top:12px">
-          <button type="submit" class="btn primary">Adicionar à fatura</button>
+          <button type="submit" class="btn primary" id="card-submit">Adicionar à fatura</button>
+          <button type="button" class="btn hidden" id="card-cancel">Cancelar</button>
+          <button type="button" class="btn danger hidden" id="card-delete">Excluir</button>
+          <button type="button" class="link hidden" id="card-full-edit">Abrir no formulário completo</button>
         </div>
         <datalist id="other-list"></datalist>
       </form>

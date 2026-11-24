@@ -1,5 +1,5 @@
 import {
-  parseMoney, parseNfQr, parseNfXml, parseOfx, parseCsvRows, guessCsvColumns, csvToTransactions,
+  parseMoney, parseNfQr, parseNfXml, parseOfx, parseCsvRows, guessCsvColumns, csvToTransactions, normalizeText,
 } from './parsers.js';
 import { store, GROUPS, PAYMENTS } from './store.js';
 import { decodeFrame, decodeImage, warmUp } from './qr.js';
@@ -38,12 +38,59 @@ function paidByLabel(t) {
     const w = splitPeople(t);
     return w.length === 2 && store.people.length === 2 ? SPLIT : `Dividido: ${joinNames(w)}`;
   }
-  if (t.paidBy === OTHERS && t.otherName) return `Outros: ${t.otherName}`;
+  if (t.paidBy === OTHERS) return `Outros: ${joinNames(otherNames(t))}`;
   return t.paidBy || '';
+}
+
+// “Outros” pode ter mais de um nome (“Thaís e Lari”): cada um paga uma parte igual.
+// Nomes que são pessoas da conta (Lari) contam para ela; grafias diferentes do mesmo
+// nome (Thaís/Thais) são tratadas como a mesma pessoa.
+const NAME_SPLIT = /\s*(?:,|;|\/|&|\+|\s+e\s+)\s*/i;
+const splitNames = (txt) => String(txt || '').split(NAME_SPLIT).map((x) => x.trim()).filter(Boolean);
+let otherSpellings = new Map(); // nome normalizado → grafia exibida
+/** Escolhe a grafia mais usada de cada nome em “Outros” (empate: a acentuada). */
+function refreshOtherSpellings() {
+  const count = new Map();
+  store.transactions.forEach((t) => {
+    if (t.paidBy !== OTHERS) return;
+    splitNames(t.otherName).forEach((n) => {
+      const k = normalizeText(n);
+      const m = count.get(k) || new Map();
+      m.set(n, (m.get(n) || 0) + 1);
+      count.set(k, m);
+    });
+  });
+  const accents = (x) => (x.match(/[^\x00-\x7f]/g) || []).length;
+  otherSpellings = new Map([...count].map(([k, m]) => [k,
+    [...m].sort((a, b) => b[1] - a[1] || accents(b[0]) - accents(a[0]))[0][0]]));
+}
+function otherNames(t) {
+  const names = splitNames(t.otherName);
+  if (!names.length) return ['Outros'];
+  const out = names.map((n) => store.people.find((p) => normalizeText(p) === normalizeText(n))
+    || otherSpellings.get(normalizeText(n)) || n);
+  return [...new Set(out)];
+}
+/** Quanto de um lançamento é de cada um: [[nome, valor], …] (soma = valor total). */
+function shares(t) {
+  const a = t.amount;
+  if (t.paidBy === SPLIT) { const w = splitPeople(t); return w.map((p) => [p, a / w.length]); }
+  if (t.paidBy === HOUSE) {
+    const n = store.houseSize;
+    const ps = store.people.slice(0, houseCount());
+    const out = ps.map((p) => [p, a / n]);
+    if (n > ps.length) out.push(['Casa (outros moradores)', (a * (n - ps.length)) / n]);
+    return out;
+  }
+  if (t.paidBy === OTHERS) { const w = otherNames(t); return w.map((p) => [p, a / w.length]); }
+  return [[t.paidBy || '—', a]];
 }
 /** Pessoas da conta que moram na casa (para “Dividido com a casa”). */
 const houseCount = () => Math.min(store.people.length, store.houseSize);
-const ours = (t) => (t.paidBy === OTHERS ? 0 : t.paidBy === HOUSE ? (t.amount * houseCount()) / store.houseSize : t.amount);
+/** Parte de um lançamento que é das pessoas da conta (o que entra nos totais). */
+const ours = (t) => ([SPLIT, HOUSE, OTHERS].includes(t.paidBy)
+  ? shares(t).reduce((s, [n, v]) => s + (store.people.includes(n) ? v : 0), 0)
+  : t.amount);
 
 function toast(msg) {
   const t = $('#toast');
@@ -182,10 +229,7 @@ $('#period-next').addEventListener('click', () => shiftPeriod(1));
 
 // ---------- painel ----------
 function shareOf(t, person) {
-  if (t.paidBy === person) return t.amount;
-  if (t.paidBy === SPLIT) { const w = splitPeople(t); return w.includes(person) ? t.amount / w.length : 0; }
-  if (t.paidBy === HOUSE) return t.amount / store.houseSize;
-  return 0;
+  return shares(t).reduce((s, [n, v]) => s + (n === person ? v : 0), 0);
 }
 
 function renderDashboard() {
@@ -391,9 +435,10 @@ function refreshDatalists() {
   applyHouseDefault();
 }));
 
-function editTx(id) {
+function editTx(id, { full = false } = {}) {
   const t = store.transactions.find((x) => x.id === id);
   if (!t) return;
+  if (!full && isCardTx(t)) { startCardEdit(id); return; }
   showTab('lancar');
   resetForm();
   editingId = id;
@@ -679,7 +724,7 @@ function payerLabel(t, card = store.cardOf(t) || curCard()) {
     const w = splitPeople(t);
     return joinNames(w.includes(card.owner) ? [card.owner, ...w.filter((p) => p !== card.owner)] : w);
   }
-  if (t.paidBy === OTHERS) return t.otherName ? `Outros: ${t.otherName}` : 'Outros';
+  if (t.paidBy === OTHERS) return `Outros: ${joinNames(otherNames(t))}`;
   if (t.paidBy === HOUSE) return 'Casa (contas do apê)';
   return t.paidBy || '—';
 }
@@ -707,22 +752,9 @@ function shiftFatura(dir) {
 $('#fat-prev').addEventListener('click', () => shiftFatura(-1));
 $('#fat-next').addEventListener('click', () => shiftFatura(1));
 
-/** Quanto cada pessoa deve ao dono do cartão por um gasto. */
+/** Quanto cada pessoa deve ao dono do cartão por um gasto (todas as partes que não são dele). */
 function debtsOf(t, card = store.cardOf(t) || curCard()) {
-  const n = store.houseSize;
-  if (t.paidBy === SPLIT) {
-    const w = splitPeople(t);
-    return w.filter((p) => p !== card.owner).map((p) => [p, t.amount / w.length]);
-  }
-  if (t.paidBy === OTHERS) return [[t.otherName || 'Outros', t.amount]];
-  if (t.paidBy === HOUSE) {
-    const out = store.people.filter((p) => p !== card.owner).slice(0, n - 1).map((p) => [p, t.amount / n]);
-    const rest = n - houseCount();
-    if (rest > 0) out.push(['Casa (outros moradores)', (t.amount * rest) / n]);
-    return out;
-  }
-  if (t.paidBy && t.paidBy !== card.owner) return [[t.paidBy, t.amount]];
-  return [];
+  return shares(t).filter(([n]) => n !== card.owner);
 }
 
 // --- cadastro de cartões ---
@@ -750,7 +782,11 @@ function openCardConfig(card) {
 $('#card-new-btn').addEventListener('click', () => openCardConfig(null));
 $('#card-edit-btn').addEventListener('click', () => openCardConfig(curCard()));
 $('#card-config-cancel').addEventListener('click', () => cconf.classList.add('hidden'));
-$('#card-select').addEventListener('change', (e) => { selectCard(e.target.value); renderCardForm(); renderFatura(); });
+$('#card-select').addEventListener('change', (e) => {
+  selectCard(e.target.value);
+  if (editingCardTx) { editingCardTx = null; customPayer = null; cform.reset(); }
+  renderCardForm(); renderFatura();
+});
 cconf.addEventListener('submit', (e) => {
   e.preventDefault();
   const data = { name: cconf.name.value.trim(), owner: cconf.owner.value, closingDay: Number(cconf.closingDay.value) || 10 };
@@ -779,6 +815,7 @@ $('#card-config-remove').addEventListener('click', () => {
 });
 
 function renderFatura() {
+  refreshOtherSpellings();
   renderCardPicker();
   const card = curCard();
   const [y, m] = fatura.split('-').map(Number);
@@ -789,40 +826,42 @@ function renderFatura() {
     .sort((a, b) => (b.date + (b.createdAt || '')).localeCompare(a.date + (a.createdAt || '')));
   const total = all.reduce((s, t) => s + t.amount, 0);
 
-  const groups = new Map();
-  all.forEach((t) => {
-    const k = payerLabel(t, card);
-    const g = groups.get(k) || { total: 0, n: 0 };
-    g.total += t.amount; g.n++;
-    groups.set(k, g);
-  });
-  const owed = new Map();
-  all.forEach((t) => {
-    if (t.settled) return;
-    debtsOf(t, card).forEach(([who, v]) => owed.set(who, (owed.get(who) || 0) + v));
-  });
-  const pending = [...owed.values()].reduce((s, v) => s + v, 0);
-  $('#fat-total').textContent = money(total);
+  // parte de cada pessoa na fatura (quem divide entra só com a sua parte)
+  const per = new Map();
+  all.forEach((t) => shares(t).forEach(([n, v]) => {
+    const g = per.get(n) || { total: 0, pending: 0, settled: 0, n: 0 };
+    g.total += v; g.n++;
+    if (n !== card.owner) { if (t.settled) g.settled += v; else g.pending += v; }
+    per.set(n, g);
+  }));
+  const settledTotal = [...per.values()].reduce((s, g) => s + g.settled, 0);
+  const pending = [...per.values()].reduce((s, g) => s + g.pending, 0);
+  // o que foi acertado já não pesa no bolso de quem paga a fatura
+  $('#fat-total-label').textContent = settledTotal ? 'Fatura a pagar (após acertos)' : 'Total da fatura';
+  $('#fat-total').textContent = money(total - settledTotal);
+  $('#fat-total-sub').textContent = settledTotal ? `total ${money(total)} − acertado ${money(settledTotal)}` : '';
   $('#fat-receive').textContent = money(pending);
   $('#fat-receive-label').textContent = `${card.owner} tem a receber`;
 
-  const order = payerChoices(card).map((c) => c.label);
-  const rows = [...groups.entries()].sort((a, b) => {
-    const ia = order.findIndex((o) => a[0].startsWith(o)); const ib = order.findIndex((o) => b[0].startsWith(o));
-    return (ia === -1 ? 9 : ia) - (ib === -1 ? 9 : ib) || b[1].total - a[1].total;
-  });
-  const debtorOf = new Map(payerChoices(card).filter((c) => c.debtor).map((c) => [c.label, c.debtor]));
+  const rank = (n) => (n === card.owner ? 0 : store.people.includes(n) ? 1 : 2);
+  const rows = [...per.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].total - a[1].total);
   $('#fat-payers').innerHTML = all.length
-    ? `${rows.map(([k, g]) => `<div class="payer-row"><div class="who"><b>${esc(k)}</b><span>${g.n} gasto${g.n === 1 ? '' : 's'} · ${Math.round((g.total / total) * 100)}% da fatura</span></div>
-        <div class="num">${money(g.total)}${debtorOf.has(k) ? `<small>${esc(debtorOf.get(k))} deve ${money(g.total / 2)}</small>` : ''}</div></div>`).join('')}
-       ${owed.size ? `<h3>Pendente para ${esc(card.owner)} receber</h3>${[...owed.entries()].sort((a, b) => b[1] - a[1]).map(([who, v]) => `<div class="payer-row"><div class="who"><b>${esc(who)}</b></div><div class="num">${money(v)}</div></div>`).join('')}`
-    : `<p class="hint" style="margin:8px 0 0">✅ Nada pendente: tudo o que não era de ${esc(card.owner)} já foi acertado.</p>`}`
+    ? rows.map(([n, g]) => {
+      const isOther = rank(n) === 2 && n !== 'Casa (outros moradores)';
+      const status = n === card.owner ? `parte de ${esc(n)}`
+        : g.pending > 0.004 ? `falta ${money(g.pending)}${g.settled > 0.004 ? ` · acertado ${money(g.settled)}` : ''}`
+          : '✓ acertado';
+      return `<div class="payer-row" data-name="${esc(n)}"><div class="who"><b>${esc(n)}${isOther ? ' <button type="button" class="link small-link" data-act="rename-other" title="Corrigir a grafia deste nome em todos os gastos">✏️</button>' : ''}</b>
+          <span>${g.n} gasto${g.n === 1 ? '' : 's'} · ${Math.round((g.total / total) * 100)}% da fatura</span></div>
+        <div class="num">${money(g.total)}<small class="${g.pending > 0.004 ? '' : 'ok'}">${status}</small></div></div>`;
+    }).join('')
     : '<p class="empty">Nenhum gasto nesta fatura ainda.</p>';
 
+  // filtro por pessoa e tabela
   const filterSel = $('#fat-filter');
   const cur = filterSel.value;
-  filterSel.innerHTML = `<option value="">Todos</option>${[...groups.keys()].map((k) => `<option ${k === cur ? 'selected' : ''}>${esc(k)}</option>`).join('')}`;
-  const list = cur ? all.filter((t) => payerLabel(t, card) === cur) : all;
+  filterSel.innerHTML = `<option value="">Todos</option>${rows.map(([n]) => `<option ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}`;
+  const list = filterSel.value ? all.filter((t) => shares(t).some(([n]) => n === filterSel.value)) : all;
   const payerOpts = (t) => {
     const opts = payerChoices(card);
     const v = payerValue(t, card);
@@ -833,18 +872,18 @@ function renderFatura() {
     ? `<thead><tr><th>Data</th><th>Descrição / tipo</th><th class="num">Valor</th><th>Quem paga</th></tr></thead><tbody>${
       list.map((t) => {
         const debt = debtsOf(t, card).length > 0;
-        return `<tr data-id="${t.id}" class="${t.settled ? 'settled' : ''}">
+        return `<tr data-id="${t.id}" class="${t.settled ? 'settled' : ''}${t.id === editingCardTx ? ' editing' : ''}">
         <td>${fmtDate(t.date).slice(0, 5)}</td>
-        <td><button type="button" class="desc-link" data-act="edit">${esc(t.description || t.place || '—')}</button>${t.installment ? ` <span class="badge">${esc(t.installment)}</span>` : ''}
-          <span class="sub">${esc(t.category)}${t.paidBy === OTHERS && t.otherName ? ` · ${esc(t.otherName)}` : ''}</span></td>
+        <td><button type="button" class="desc-link" data-act="edit" title="Editar este gasto">${esc(t.description || t.place || '—')} <span class="edit-hint">✏️</span></button>${t.installment ? ` <span class="badge">${esc(t.installment)}</span>` : ''}
+          <span class="sub">${esc(t.category)}${t.paidBy === OTHERS ? ` · ${esc(joinNames(otherNames(t)))}` : ''}</span></td>
         <td class="num">${money(t.amount)}</td>
-        <td><select class="payer">${payerOpts(t)}</select>
+        <td><select class="payer" aria-label="Quem paga">${payerOpts(t)}</select>
           ${debt ? `<label class="settle"><input type="checkbox" class="settled-cb" ${t.settled ? 'checked' : ''}> acertado</label>` : ''}</td>
       </tr>`;
       }).join('')}</tbody>`
     : '<tbody><tr><td class="empty">Sem gastos para mostrar.</td></tr></tbody>';
 
-  $('#other-list').innerHTML = [...new Set(store.transactions.map((t) => t.otherName).filter(Boolean))].map((v) => `<option value="${esc(v)}">`).join('');
+  $('#other-list').innerHTML = [...new Set(otherSpellings.values())].map((v) => `<option value="${esc(v)}">`).join('');
 }
 $('#fat-filter').addEventListener('change', renderFatura);
 $('#fat-table').addEventListener('change', (e) => {
@@ -856,7 +895,7 @@ $('#fat-table').addEventListener('change', (e) => {
     if (e.target.value === 'custom') return;
     const patch = { ...payerPatch(e.target.value, store.cardOf(t) || curCard()), settled: false };
     if (e.target.value === OTHERS) {
-      const name = prompt('Quem vai pagar? (nome)', t.otherName || '');
+      const name = prompt('Quem vai pagar? (nome — para dividir com a dona/dono do cartão, escreva “Thaís e Lari”)', t.otherName || '');
       patch.otherName = (name || '').trim();
     }
     store.update(t.id, patch);
@@ -869,22 +908,56 @@ $('#fat-table').addEventListener('change', (e) => {
 });
 $('#fat-table').addEventListener('click', (e) => {
   const b = e.target.closest('[data-act=edit]');
-  if (b) editTx(b.closest('tr').dataset.id);
+  if (b) startCardEdit(b.closest('tr').dataset.id);
+});
+/** Corrige a grafia de um nome de “Outros” em todos os gastos (ex.: Thais → Thaís). */
+$('#fat-payers').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act=rename-other]');
+  if (!b) return;
+  const old = b.closest('[data-name]').dataset.name;
+  const novo = (prompt(`Como escrever “${old}” em todos os gastos?`, old) || '').trim();
+  if (!novo) return;
+  // grava a grafia escolhida em todas as variações (Thais, thais, Thaís…)
+  let n = 0;
+  store.transactions.forEach((t) => {
+    if (t.paidBy !== OTHERS) return;
+    const parts = splitNames(t.otherName);
+    const fixed = parts.map((x) => (normalizeText(x) === normalizeText(old) ? novo : x));
+    if (fixed.every((x, i) => x === parts[i])) return;
+    store.update(t.id, { otherName: fixed.join(' e ') });
+    n++;
+  });
+  toast(`“${old}” agora é “${novo}” em ${n} gasto${n === 1 ? '' : 's'}.`);
+  renderFatura();
 });
 
-// formulário rápido do cartão
+// formulário do cartão: adicionar ou editar um gasto
 const cform = $('#card-form');
 let cardPayer = null;
+let editingCardTx = null;    // id do gasto em edição
+let customPayer = null;      // divisão especial (ex.: entre 3 pessoas) mantida ao editar
 function renderCardForm() {
   const card = curCard();
   if (!cform.date.value) cform.date.value = iso(new Date());
   const cats = store.categoriesFor('gasto').map((c) => c.name);
   const curCat = cform.category.value || 'Outros gastos';
   cform.category.innerHTML = options(cats, cats.includes(curCat) ? curCat : 'Outros gastos');
-  if (!cardPayer || !payerChoices(card).some((c) => c.value === cardPayer)) cardPayer = card.owner;
-  $('#card-payer').innerHTML = payerChoices(card).map((c) => `<button type="button" data-v="${esc(c.value)}" class="${c.value === cardPayer ? 'on' : ''}">${esc(c.label)}</button>`).join('');
+  const choices = payerChoices(card);
+  if (cardPayer === 'custom' && customPayer) choices.push({ value: 'custom', label: payerLabel(customPayer, card) });
+  if (!cardPayer || !choices.some((c) => c.value === cardPayer)) cardPayer = card.owner;
+  $('#card-payer').innerHTML = choices.map((c) => `<button type="button" data-v="${esc(c.value)}" class="${c.value === cardPayer ? 'on' : ''}">${esc(c.label)}</button>`).join('');
   $('#card-other-wrap').classList.toggle('hidden', cardPayer !== OTHERS);
-  $('#card-form h2').textContent = `Novo gasto no ${card.name}`;
+  const editing = !!editingCardTx;
+  $('#card-form-title').textContent = editing ? 'Editar gasto do cartão' : `Novo gasto no ${card.name}`;
+  $('#card-submit').textContent = editing ? 'Salvar alterações' : 'Adicionar à fatura';
+  $('#card-cancel').classList.toggle('hidden', !editing);
+  $('#card-delete').classList.toggle('hidden', !editing);
+  $('#card-full-edit').classList.toggle('hidden', !editing);
+  $('#card-import').classList.toggle('hidden', editing);
+  $('#card-move-wrap').classList.toggle('hidden', !editing || store.cards.length < 2);
+  const keep = cform.cardId.value || card.id;
+  cform.cardId.innerHTML = store.cards.map((c) => `<option value="${esc(c.id)}" ${c.id === keep ? 'selected' : ''}>${esc(cardLabel(c))}</option>`).join('');
+  cform.classList.toggle('is-editing', editing);
 }
 $('#card-payer').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-v]');
@@ -894,24 +967,85 @@ $('#card-payer').addEventListener('click', (e) => {
   if (cardPayer === OTHERS) cform.otherName.focus();
 });
 cform.description.addEventListener('change', () => {
+  if (editingCardTx) return;
   cform.category.value = store.suggestCategory({ description: cform.description.value, type: 'gasto' });
 });
+
+/** Abre um gasto do cartão (lançado ou importado) para editar. */
+function startCardEdit(id) {
+  const t = store.transactions.find((x) => x.id === id);
+  if (!t) return;
+  const card = store.cardOf(t) || curCard();
+  if (card.id !== curCard().id) selectCard(card.id);
+  if (!$('#tab-cartao').classList.contains('active')) showTab('cartao');
+  editingCardTx = id;
+  cform.reset();
+  cform.date.value = t.date;
+  cform.amount.value = t.amount.toFixed(2).replace('.', ',');
+  cform.description.value = t.description || t.place || '';
+  cform.installment.value = t.installment || '';
+  cform.otherName.value = t.paidBy === OTHERS ? (t.otherName || '') : '';
+  cform.cardId.value = card.id;
+  cardPayer = payerValue(t, card);
+  customPayer = cardPayer === 'custom' ? { paidBy: t.paidBy, splitWith: t.splitWith || null } : null;
+  renderCardForm();
+  const cats = store.categoriesFor('gasto').map((c) => c.name);
+  cform.category.innerHTML = options(cats.includes(t.category) ? cats : [...cats, t.category], t.category);
+  cform.cardId.value = card.id;
+  renderFatura();
+  cform.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function endCardEdit() {
+  editingCardTx = null;
+  customPayer = null;
+  cardPayer = null;
+  const keepDate = cform.date.value;
+  cform.reset();
+  cform.date.value = keepDate;
+  renderCardForm();
+  renderFatura();
+}
+$('#card-cancel').addEventListener('click', endCardEdit);
+$('#card-delete').addEventListener('click', () => {
+  const t = store.transactions.find((x) => x.id === editingCardTx);
+  if (!t || !confirm(`Excluir “${t.description || 'este gasto'}” (${money(t.amount)}) da fatura?`)) return;
+  store.remove(t.id);
+  toast('Gasto excluído.');
+  endCardEdit();
+});
+$('#card-full-edit').addEventListener('click', () => {
+  const id = editingCardTx;
+  endCardEdit();
+  editTx(id, { full: true });
+});
+
 cform.addEventListener('submit', (e) => {
   e.preventDefault();
-  const card = curCard();
   const amount = Math.abs(parseMoney(cform.amount.value));
   if (!Number.isFinite(amount) || !amount) { toast('Informe um valor válido.'); cform.amount.focus(); return; }
   if (cardPayer === OTHERS && !cform.otherName.value.trim()) { toast('Diga quem vai pagar.'); cform.otherName.focus(); return; }
-  const tx = {
-    type: 'gasto', date: cform.date.value, amount: Math.round(amount * 100) / 100,
-    description: cform.description.value.trim(), place: '', category: cform.category.value,
-    ...payerPatch(cardPayer, card), payment: 'Crédito', card: card.id, source: 'manual', note: '',
-    ...(cardPayer === OTHERS ? { otherName: cform.otherName.value.trim() } : {}),
-    ...(cform.installment.value.trim() ? { installment: cform.installment.value.trim() } : {}),
+  const target = (editingCardTx && store.cards.find((c) => c.id === cform.cardId.value)) || curCard();
+  const payer = cardPayer === 'custom' && customPayer ? customPayer : payerPatch(cardPayer, target);
+  const fields = {
+    date: cform.date.value, amount: Math.round(amount * 100) / 100,
+    description: cform.description.value.trim(), category: cform.category.value,
+    ...payer, payment: 'Crédito', card: target.id,
+    otherName: cardPayer === OTHERS ? cform.otherName.value.trim() : '',
+    installment: cform.installment.value.trim(),
   };
-  store.add(tx);
-  fatura = faturaOf(tx.date, card);
-  toast(`Adicionado à fatura ${card.name} de ${MONTHS_LONG[Number(fatura.slice(5)) - 1]}: ${money(tx.amount)} (${payerLabel(tx, card)}).`);
+  if (editingCardTx) {
+    const before = store.transactions.find((x) => x.id === editingCardTx);
+    if (before && (before.paidBy !== fields.paidBy || (before.otherName || '') !== fields.otherName)) fields.settled = false;
+    store.update(editingCardTx, fields);
+    selectCard(target.id);
+    fatura = faturaOf(fields.date, target);
+    toast('Gasto atualizado.');
+    endCardEdit();
+    return;
+  }
+  store.add({ type: 'gasto', place: '', source: 'manual', note: '', ...fields });
+  fatura = faturaOf(fields.date, target);
+  toast(`Adicionado à fatura ${target.name} de ${MONTHS_LONG[Number(fatura.slice(5)) - 1]}: ${money(fields.amount)} (${payerLabel(fields, target)}).`);
   const keepDate = cform.date.value;
   cform.reset();
   cform.date.value = keepDate;
@@ -1141,6 +1275,7 @@ function closeImport() {
 
 // ---------- lista ----------
 function renderList() {
+  refreshOtherSpellings();
   const { from, to } = periodRange();
   $('#list-period').textContent = periodLabel();
   const cats = [...new Set(store.state.categories.map((c) => c.name))];
