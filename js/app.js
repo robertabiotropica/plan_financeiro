@@ -129,6 +129,7 @@ function download(name, content, type) {
 function showTab(name) {
   $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   $$('.panel').forEach((p) => p.classList.toggle('active', p.id === `tab-${name}`));
+  $('#fab-add').classList.toggle('hidden', !['painel', 'lista'].includes(name));
   if (name === 'painel') renderDashboard();
   if (name === 'lista') renderList();
   if (name === 'cartao') { renderCardForm(); renderFatura(); }
@@ -271,10 +272,16 @@ function renderDashboard() {
     const out = gastos.reduce((s, t) => s + shareOf(t, p), 0);
     return { p, inn, out, bal: inn - out };
   });
-  $('#people-table').innerHTML = `<table>
-    <thead><tr><th></th><th class="num">Entradas</th><th class="num">Gastos</th><th class="num">Balanço</th></tr></thead>
-    <tbody>${rows.map((r) => `<tr><td><b>${esc(r.p)}</b></td><td class="num">${money(r.inn)}</td><td class="num">${money(r.out)}</td>
-      <td class="num ${r.bal >= 0 ? 'pos' : 'neg'}">${money(r.bal)}</td></tr>`).join('')}</tbody></table>
+  // cartões por pessoa: saldo em destaque, barras de entradas × gastos e variação dos gastos
+  const prevOut = (p) => ptx.filter((t) => t.type === 'gasto').reduce((s2, t) => s2 + shareOf(t, p), 0);
+  const scale = Math.max(1, ...rows.map((r) => Math.max(r.inn, r.out)));
+  $('#people-table').innerHTML = `<div class="people-cards">${rows.map((r) => `
+    <button type="button" class="person-card" data-person="${esc(r.p)}" title="Ver os lançamentos de ${esc(r.p)}">
+      <span class="pc-head"><b>${esc(r.p)}</b><span class="pc-bal ${r.bal >= 0 ? 'pos' : 'neg'}">${money(r.bal)}</span></span>
+      <span class="pc-bar"><span class="pc-label">Entradas</span><span class="pc-val">${money(r.inn)}</span><span class="pc-track"><span class="pc-fill in" style="width:${(r.inn / scale) * 100}%"></span></span></span>
+      <span class="pc-bar"><span class="pc-label">Gastos</span><span class="pc-val">${money(r.out)}</span><span class="pc-track"><span class="pc-fill out" style="width:${(r.out / scale) * 100}%"></span></span></span>
+      <span class="pc-delta">${deltaHtml(r.out, prevOut(r.p), false, cmp.label).replace('▲', 'gastos ▲').replace('▼', 'gastos ▼')}</span>
+    </button>`).join('')}</div>
     <p class="hint" style="margin:8px 0 0">“Dividido” conta a parte de cada pessoa que divide. “${HOUSE}” (contas do apê) conta 1/${store.houseSize} para cada pessoa da conta — só a parte de vocês entra nos totais. “${OTHERS}” não entra.</p>`;
 
   // gastos do período anterior por categoria (para a variação de cada uma)
@@ -328,6 +335,7 @@ function deltaHtml(cur, prev, upIsGood, label) {
 let listPreset = null;       // filtros a aplicar na Lista ao abrir por um atalho
 let listHideHouse = false;   // atalho “sem forma de pagamento” esconde as contas do apê
 let listOnlyConfirm = false; // atalho “contas fixas para conferir”
+let listPersonPreset = null;  // atalho “ver lançamentos desta pessoa”
 let fatFilterPreset = null;  // filtro “pessoa” a aplicar na fatura ao abrir por um atalho
 function renderAlerts(periodTxs) {
   refreshOtherSpellings();
@@ -345,6 +353,7 @@ function renderAlerts(periodTxs) {
     const list = store.transactions.filter((t) => store.cardOf(t)?.id === card.id && faturaOf(t.date, card) === key);
     if (!list.length && !store.transactions.some((t) => store.cardOf(t)?.id === card.id)) return;
     const total = list.reduce((s, t) => s + t.amount, 0);
+    if (total < 0.005) return; // fatura vazia não precisa de atenção
     const close = faturaRange(key, card).to;
     const left = daysBetween(today, close);
     items.push({ icon: '💳', html: `<b>${esc(card.name)}</b> · fatura de ${MONTHS_LONG[Number(key.slice(5)) - 1]}: <b>${money(total)}</b> até agora`,
@@ -555,6 +564,15 @@ function renderCategoryChart(gastos, total) {
   el.innerHTML = groups.map((x) => `<div class="cat-group"><div class="cat-group-head"><span>${esc(x.g)}</span><b>${money(x.v)}</b></div>${x.items.map(row).join('')}</div>`).join('')
     + `<p class="hint" style="margin:8px 0 0">Toque numa categoria para ver os lançamentos. ${catCompare.label ? `Variação ${esc(catCompare.label)}.` : ''}${factor !== 1 ? ` Metas ajustadas ao período (meta mensal × ${factor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}).` : ''}</p>`;
 }
+$('#people-table').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-person]');
+  if (b) { listPreset = { person: b.dataset.person }; showTab('lista'); }
+});
+// botão + flutuante: lançar sem trocar de aba manualmente
+$('#fab-add').addEventListener('click', () => {
+  showTab('lancar');
+  setTimeout(() => form.amount.focus(), 50);
+});
 $('#chart-cat').addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
@@ -1678,7 +1696,8 @@ function renderList() {
   const catSel = $('#list-cat');
   const preset = listPreset;
   listPreset = null;
-  if (preset) { $('#list-search').value = ''; $('#list-type').value = preset.type || ''; $('#list-person').value = ''; listHideHouse = !!preset.hideHouse; listOnlyConfirm = !!preset.onlyConfirm; }
+  if (preset) { $('#list-search').value = ''; $('#list-type').value = preset.type || ''; $('#list-person').value = '';
+    listPersonPreset = preset.person || null; listHideHouse = !!preset.hideHouse; listOnlyConfirm = !!preset.onlyConfirm; }
   const cur = preset ? (preset.category || '') : catSel.value;
   catSel.innerHTML = `<option value="">Categorias</option>${options(cats, cur)}`;
   const q = $('#list-search').value.trim().toLowerCase();
@@ -1687,7 +1706,8 @@ function renderList() {
 
   // filtro “De quem”: pessoas da conta e nomes de “Outros” que têm parte em algum lançamento do período
   const personSel = $('#list-person');
-  const curPerson = personSel.value;
+  const curPerson = listPersonPreset ?? personSel.value;
+  listPersonPreset = null;
   // mesmos nomes do “Pago por”: pessoas da conta, nomes antigos que ainda aparecem em lançamentos
   // e os nomes escritos em “Outros” (Thaís, Papis…)
   const special = [SPLIT, HOUSE, OTHERS, '—', '', 'Casa (outros moradores)'];
