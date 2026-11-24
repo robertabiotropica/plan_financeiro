@@ -65,6 +65,8 @@ function emptyState() {
     cards: [{ id: 'cartao', name: 'Cartão Lari', owner: 'Lari', closingDay: 10 }],
     // metas mensais por categoria: { Mercado: 1500, … }
     budgets: {},
+    // contas fixas: lançadas sozinhas todo mês como “a conferir”
+    recurring: [],
   };
 }
 
@@ -150,12 +152,60 @@ export const store = {
   settings() {
     return {
       people: state.people, categories: state.categories, memory: state.memory, merchants: state.merchants,
-      houseSize: state.houseSize || 3, migrations: state.migrations || {}, cards: this.cards, budgets: state.budgets || {},
+      houseSize: state.houseSize || 3, migrations: state.migrations || {}, cards: this.cards, budgets: state.budgets || {}, recurring: state.recurring || [],
     };
   },
   defaultSettings() {
     const e = emptyState();
-    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {}, cards: e.cards, budgets: {} };
+    return { people: e.people, categories: e.categories, memory: {}, merchants: {}, houseSize: 3, migrations: {}, cards: e.cards, budgets: {}, recurring: [] };
+  },
+  // ---------- contas fixas ----------
+  get recurring() { return (state.recurring || []).filter((r) => r && r.id); },
+  saveRecurring(list) {
+    state.recurring = list;
+    backend.saveSettings(this.settings());
+    emit();
+  },
+  addRecurring(rule) {
+    const id = `r-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    this.saveRecurring([...this.recurring, { skip: [], active: true, ...rule, id }]);
+    return id;
+  },
+  updateRecurring(id, patch) {
+    this.saveRecurring(this.recurring.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  },
+  removeRecurring(id) {
+    this.saveRecurring(this.recurring.filter((r) => r.id !== id));
+  },
+  /**
+   * Cria os lançamentos das contas fixas que ainda faltam, do mês de início até `untilMonth`
+   * (aaaa-mm). Cada mês tem uma chave própria, então nunca duplica, nem entre celulares.
+   */
+  generateRecurring(untilMonth) {
+    const out = [];
+    this.recurring.filter((r) => r.active !== false).forEach((r) => {
+      let [y, m] = r.start.split('-').map(Number);
+      for (let guard = 0; guard < 120; guard++) {
+        const key = `${y}-${String(m).padStart(2, '0')}`;
+        if (key > untilMonth) break;
+        const dedupKey = `rec:${r.id}:${key}`;
+        // já existe um lançamento equivalente nesse mês (ex.: lançado à mão ou vindo da planilha)?
+        const prefix = normalizeText(r.description || '').slice(0, 6);
+        const already = state.transactions.some((t) => t.date.startsWith(key) && t.type === (r.type || 'gasto')
+          && t.category === r.category && !t.recurring && normalizeText(t.description || '').startsWith(prefix));
+        if (!already && !(r.skip || []).includes(key) && !this.findByDedupKey(dedupKey)) {
+          const last = new Date(y, m, 0).getDate();
+          out.push({
+            type: r.type || 'gasto', date: `${key}-${String(Math.min(r.day || 1, last)).padStart(2, '0')}`,
+            amount: r.amount, description: r.description, place: r.place || '', category: r.category,
+            paidBy: r.paidBy, payment: r.payment || '', card: r.card || null, splitWith: r.splitWith || null,
+            otherName: r.otherName || '', note: '', source: 'fixa', recurring: r.id, toConfirm: true, dedupKey,
+          });
+        }
+        m++; if (m > 12) { m = 1; y++; }
+      }
+    });
+    return out.length ? this.addMany(out) : 0;
   },
   /** Meta mensal de uma categoria (0 = sem meta). */
   budgetOf(category) { return Number((state.budgets || {})[category]) || 0; },
@@ -360,8 +410,14 @@ export const store = {
     backend.saveSettings(this.settings());
   },
   remove(id) {
-    state.transactions = state.transactions.filter((t) => t.id !== id);
+    const t = state.transactions.find((x) => x.id === id);
+    state.transactions = state.transactions.filter((x) => x.id !== id);
     backend.deleteTx(id);
+    if (t?.recurring) {
+      const r = this.recurring.find((x) => x.id === t.recurring);
+      const month = t.date.slice(0, 7);
+      if (r && !(r.skip || []).includes(month)) this.updateRecurring(r.id, { skip: [...(r.skip || []), month] });
+    }
   },
 
   learn(t) {

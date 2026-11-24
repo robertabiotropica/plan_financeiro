@@ -130,6 +130,8 @@
           <label class="hidden" id="tx-card-wrap">Cartão<select name="card"></select></label>
           <label>Observação<input type="text" name="note"></label>
         </div>
+        <label class="check" id="repeat-wrap"><input type="checkbox" name="repeat"> 🔁 Repetir todo mês (conta fixa — os próximos meses são lançados sozinhos para você conferir)</label>
+        <p class="hint hidden" id="form-recurring-note"></p>
         <div id="nf-attached" class="nf-attached hidden"></div>
         <div id="form-warning" class="status warn hidden"></div>
         <div class="btn-row">
@@ -286,6 +288,7 @@
           <select id="list-payment" aria-label="Forma de pagamento"><option value="">Pagamento</option></select>
         </div>
         <p class="hint">Mostrando o período selecionado no Painel: <b id="list-period"></b></p>
+        <p class="hint hidden" id="list-confirm-note">Mostrando só as contas fixas para conferir (valor estimado). Toque numa para conferir e salvar. <button type="button" class="link" id="list-confirm-show">Mostrar tudo</button></p>
         <p class="hint hidden" id="list-house-note">Ocultando as contas do apê. <button type="button" class="link" id="list-house-show">Mostrar também</button></p>
         <div class="table-wrap"><table class="tx-table" id="list-table"></table></div>
       </div>
@@ -304,6 +307,12 @@
         </div>
         <label style="max-width:260px">Pessoas que dividem as contas do apê<input type="number" id="house-size" min="2" max="20" inputmode="numeric"></label>
         <p class="hint" style="margin:6px 0 0">Usado na opção “Dividido com a casa”: só a parte de vocês entra nos totais.</p>
+      </div>
+      <div class="card">
+        <h2>Contas fixas</h2>
+        <p class="hint">Lançadas sozinhas todo mês, com o último valor como estimativa, para vocês conferirem.</p>
+        <div id="recurring-list"></div>
+        <div id="recurring-sugg"></div>
       </div>
       <div class="card">
         <h2>Cartões de crédito</h2>

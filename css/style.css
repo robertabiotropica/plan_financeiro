@@ -432,3 +432,8 @@ tr.editing td { background: var(--accent-soft); }
 .cat-meta > span:first-child { min-width: 0; }
 .goal-link { white-space: nowrap; color: var(--text-3); flex: 0 0 auto; }
 .cat-item.has-goal .goal-link { color: var(--accent); }
+
+#repeat-wrap { margin: 0 0 12px; align-items: flex-start; line-height: 1.35; }
+#repeat-wrap input { margin-top: 2px; }
+.rec-row .sub { display: block; font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.rec-row .btn.small { padding: 4px 7px; }

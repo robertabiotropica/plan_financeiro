@@ -211,6 +211,7 @@ export function openHousehold(id) {
         card: d.card,
         cards: d.cards,
         budgets: d.budgets || {},
+        recurring: d.recurring || [],
         migrations: d.migrations || {},
         householdName: d.name,
         memberNames: d.memberNames || {},

@@ -327,6 +327,7 @@ function deltaHtml(cur, prev, upIsGood, label) {
 // ---------- pendências: o que precisa de atenção ----------
 let listPreset = null;       // filtros a aplicar na Lista ao abrir por um atalho
 let listHideHouse = false;   // atalho “sem forma de pagamento” esconde as contas do apê
+let listOnlyConfirm = false; // atalho “contas fixas para conferir”
 let fatFilterPreset = null;  // filtro “pessoa” a aplicar na fatura ao abrir por um atalho
 function renderAlerts(periodTxs) {
   refreshOtherSpellings();
@@ -350,6 +351,10 @@ function renderAlerts(periodTxs) {
       sub: left <= 0 ? 'fecha hoje' : `fecha em ${left} dia${left === 1 ? '' : 's'} (${fmtDate(close).slice(0, 5)})${left <= 3 ? ' — confira os lançamentos' : ''}`,
       warn: left <= 3, go: () => { selectCard(card.id); fatura = key; showTab('cartao'); } });
   });
+  // contas fixas lançadas sozinhas, com valor estimado
+  const toConfirm = store.transactions.filter((t) => t.toConfirm && t.date <= today).length;
+  if (toConfirm) items.push({ icon: '🔁', html: `<b>${toConfirm}</b> conta${toConfirm === 1 ? '' : 's'} fixa${toConfirm === 1 ? '' : 's'} para conferir`, sub: 'lançadas com valor estimado — confira e salve o valor real',
+    go: () => { listPreset = { type: '', onlyConfirm: true }; showTab('lista'); } });
   // 3) lançamentos do período incompletos
   const noPay = periodTxs.filter((t) => t.type === 'gasto' && !t.payment && store.groupOf(t.category) !== 'Contas apê').length;
   if (noPay) items.push({ icon: '❓', html: `<b>${noPay}</b> gasto${noPay === 1 ? '' : 's'} sem forma de pagamento`, sub: 'neste período (fora as contas do apê) — toque para completar',
@@ -609,6 +614,9 @@ function resetForm() {
   $('#form-title').textContent = 'Novo lançamento';
   $('#form-submit').textContent = 'Salvar';
   $('#form-delete').classList.add('hidden');
+  $('#repeat-wrap').classList.remove('hidden');
+  form.repeat.checked = false;
+  $('#form-recurring-note').classList.add('hidden');
   $('#nf-attached').classList.add('hidden');
   $('#form-warning').classList.add('hidden');
   setFormType('gasto');
@@ -667,6 +675,12 @@ function editTx(id, { full = false } = {}) {
   $('#form-title').textContent = 'Editar lançamento';
   $('#form-submit').textContent = 'Salvar alterações';
   $('#form-delete').classList.remove('hidden');
+  $('#repeat-wrap').classList.add('hidden');
+  if (t.recurring) {
+    const r = store.recurring.find((x) => x.id === t.recurring);
+    $('#form-recurring-note').innerHTML = `🔁 Conta fixa${r ? ` (todo dia ${r.day})` : ''}${t.toConfirm ? ' — <b>valor estimado, confira e salve</b>' : ''}. O valor salvo vira a estimativa dos próximos meses.`;
+    $('#form-recurring-note').classList.remove('hidden');
+  }
   if (t.nf) showAttachedNf(t.nf);
   else if (t.itens?.length) {
     const box = $('#nf-attached');
@@ -697,8 +711,15 @@ form.addEventListener('submit', (e) => {
   }
   if (attachedNf && !editingId && tx.place && /^NF(C)?-e nº/.test(tx.description)) tx.description = `Compra ${tx.place}`;
   if (editingId) {
+    const before = store.transactions.find((x) => x.id === editingId);
+    if (before?.recurring) {
+      tx.toConfirm = false;
+      // o valor conferido vira a estimativa dos próximos meses
+      const r = store.recurring.find((x) => x.id === before.recurring);
+      if (r && Math.abs(r.amount - tx.amount) > 0.004 && tx.date.slice(0, 7) >= todayIso().slice(0, 7)) store.updateRecurring(r.id, { amount: tx.amount });
+    }
     store.update(editingId, tx);
-    toast('Lançamento atualizado.');
+    toast(before?.toConfirm ? 'Conta conferida.' : 'Lançamento atualizado.');
   } else {
     if (attachedNf) {
       tx.source = 'nf';
@@ -706,8 +727,18 @@ form.addEventListener('submit', (e) => {
       tx.nf = attachedNf;
       if (store.findByDedupKey(tx.dedupKey)) { toast('Esta nota já foi lançada.'); return; }
     } else tx.source = 'manual';
-    store.add(tx);
-    toast(`${tx.type === 'gasto' ? 'Gasto' : 'Entrada'} de ${money(tx.amount)} salvo.`);
+    if (form.repeat.checked) {
+      // vira conta fixa: este mês já fica lançado; os próximos são gerados sozinhos
+      const rid = store.addRecurring({
+        type: tx.type, description: tx.description || tx.category, place: tx.place, category: tx.category, amount: tx.amount,
+        day: Number(tx.date.slice(8, 10)), paidBy: tx.paidBy, payment: tx.payment, card: tx.card, splitWith: tx.splitWith,
+        start: tx.date.slice(0, 7),
+      });
+      Object.assign(tx, { recurring: rid, dedupKey: `rec:${rid}:${tx.date.slice(0, 7)}`, source: tx.source || 'fixa' });
+    }
+    const added = store.add(tx);
+    if (added) projectInstallments(added);
+    toast(`${tx.type === 'gasto' ? 'Gasto' : 'Entrada'} de ${money(tx.amount)} salvo${form.repeat.checked ? ' — vai se repetir todo mês' : ''}.`);
   }
   const keep = { paidBy: tx.paidBy, payment: tx.payment };
   resetForm();
@@ -1147,7 +1178,7 @@ function renderFatura() {
         const partial = t.settled ? 0 : debtsOf(t, card).reduce((s2, [n]) => s2 + (paidOn.get(`${t.id}|${n}`) || 0), 0);
         return `<tr data-id="${t.id}" class="${t.settled ? 'settled' : ''}${t.id === editingCardTx ? ' editing' : ''}">
         <td>${fmtDate(t.date).slice(0, 5)}</td>
-        <td><button type="button" class="desc-link" data-act="edit" title="Editar este gasto">${esc(t.description || t.place || '—')} <span class="edit-hint">✏️</span></button>${t.installment ? ` <span class="badge">${esc(t.installment)}</span>` : ''}
+        <td><button type="button" class="desc-link" data-act="edit" title="Editar este gasto">${esc(t.description || t.place || '—')} <span class="edit-hint">✏️</span></button>${t.installment ? ` <span class="badge">${esc(t.installment)}</span>` : ''}${t.projected ? ' <span class="badge warn">prevista</span>' : ''}${t.toConfirm ? ' <span class="badge warn">a conferir</span>' : ''}
           <span class="sub">${esc(t.category)}${t.paidBy === OTHERS ? ` · ${esc(joinNames(otherNames(t)))}` : ''}</span></td>
         <td class="num">${money(t.amount)}${partial > 0.004 ? `<span class="sub ok">pago ${money(partial)}</span>` : ''}</td>
         <td><select class="payer" aria-label="Quem paga">${payerOpts(t)}</select>
@@ -1203,6 +1234,29 @@ $('#fat-payers').addEventListener('click', (e) => {
   toast(`“${old}” agora é “${novo}” em ${n} gasto${n === 1 ? '' : 's'}.`);
   renderFatura();
 });
+
+// ---------- parcelas: uma compra “2/5” cria as parcelas 3/5, 4/5 e 5/5 nas próximas faturas ----------
+function projectInstallments(t) {
+  const m = String(t.installment || '').match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/);
+  if (!m || !store.cardOf(t) || t.projected) return 0;
+  const n = Number(m[1]); const total = Number(m[2]);
+  if (!(n >= 1 && n < total && total <= 48)) return 0;
+  const [y, mo, d] = t.date.split('-').map(Number);
+  const base = t.dedupKey || t.id;
+  const list = [];
+  for (let k = n + 1; k <= total; k++) {
+    const dt = new Date(y, mo - 1 + (k - n), 1, 12);
+    const last = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+    const date = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(Math.min(d, last))}`;
+    const description = (t.description || '').replace(new RegExp(`\\b${n}\\s*/\\s*${total}\\b`), `${k}/${total}`);
+    list.push({
+      type: 'gasto', date, amount: t.amount, description, place: t.place || '', category: t.category, paidBy: t.paidBy,
+      payment: 'Crédito', card: t.card || store.cardOf(t).id, splitWith: t.splitWith || null, otherName: t.otherName || '',
+      installment: `${k}/${total}`, note: '', source: 'parcela', projected: true, dedupKey: `parc:${base}:${k}`,
+    });
+  }
+  return store.addMany(list);
+}
 
 // registrar pagamento recebido (acerto): abate o que a pessoa deve
 function renderSettleForm(card) {
@@ -1346,6 +1400,7 @@ cform.addEventListener('submit', (e) => {
   if (editingCardTx) {
     const before = store.transactions.find((x) => x.id === editingCardTx);
     if (before && (before.paidBy !== fields.paidBy || (before.otherName || '') !== fields.otherName)) fields.settled = false;
+    if (before?.projected) fields.projected = false;
     store.update(editingCardTx, fields);
     selectCard(target.id);
     fatura = faturaOf(fields.date, target);
@@ -1353,7 +1408,9 @@ cform.addEventListener('submit', (e) => {
     endCardEdit();
     return;
   }
-  store.add({ type: 'gasto', place: '', source: 'manual', note: '', ...fields });
+  const added = store.add({ type: 'gasto', place: '', source: 'manual', note: '', ...fields });
+  const nParc = added ? projectInstallments(added) : 0;
+  if (nParc) setTimeout(() => toast(`📅 ${nParc} parcela${nParc === 1 ? '' : 's'} futura${nParc === 1 ? '' : 's'} prevista${nParc === 1 ? '' : 's'} nas próximas faturas.`), 1800);
   fatura = faturaOf(fields.date, target);
   toast(`Adicionado à fatura ${target.name} de ${MONTHS_LONG[Number(fatura.slice(5)) - 1]}: ${money(fields.amount)} (${payerLabel(fields, target)}).`);
   const keepDate = cform.date.value;
@@ -1591,7 +1648,9 @@ $('#imp-confirm').addEventListener('click', () => {
     ? { ...i.tx, type: 'acerto', from: i.settle.from, to: i.settle.to, category: '', paidBy: '', payment: i.tx.payment, description: i.tx.description }
     : i.tx));
   const n = store.addMany(list);
-  toast(`${n} lançamento(s) importado(s).`);
+  let nParc = 0;
+  list.forEach((t) => { const saved = t.dedupKey && store.findByDedupKey(t.dedupKey); if (saved) nParc += projectInstallments(saved); });
+  toast(`${n} lançamento(s) importado(s).${nParc ? ` 📅 ${nParc} parcela(s) futura(s) prevista(s).` : ''}`);
   const wasCard = importKind === 'cartao';
   const icard = importCard();
   const first = list[0];
@@ -1614,11 +1673,12 @@ function renderList() {
   const { from, to } = periodRange();
   $('#list-period').textContent = periodLabel();
   $('#list-house-note').classList.toggle('hidden', !listHideHouse);
+  $('#list-confirm-note').classList.toggle('hidden', !listOnlyConfirm);
   const cats = [...new Set(store.state.categories.map((c) => c.name))];
   const catSel = $('#list-cat');
   const preset = listPreset;
   listPreset = null;
-  if (preset) { $('#list-search').value = ''; $('#list-type').value = preset.type || ''; $('#list-person').value = ''; listHideHouse = !!preset.hideHouse; }
+  if (preset) { $('#list-search').value = ''; $('#list-type').value = preset.type || ''; $('#list-person').value = ''; listHideHouse = !!preset.hideHouse; listOnlyConfirm = !!preset.onlyConfirm; }
   const cur = preset ? (preset.category || '') : catSel.value;
   catSel.innerHTML = `<option value="">Categorias</option>${options(cats, cur)}`;
   const q = $('#list-search').value.trim().toLowerCase();
@@ -1665,6 +1725,7 @@ function renderList() {
     .filter((t) => !who || (t.type === 'acerto' ? [canonName(t.from), canonName(t.to)].includes(who) : shareOf(t, who) > 0.004))
     .filter(matchPay)
     .filter((t) => !listHideHouse || store.groupOf(t.category) !== 'Contas apê')
+    .filter((t) => !listOnlyConfirm || t.toConfirm)
     .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, (t.nf?.itens || t.itens || []).map((i) => i.descricao).join(' ')]
       .join(' ').toLowerCase().includes(q))
     .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
@@ -1675,7 +1736,7 @@ function renderList() {
     ? `<thead><tr><th>Data</th><th>Descrição</th><th class="col-cat">Categoria</th><th class="num">Valor</th></tr></thead><tbody>${
       list.map((t) => `<tr class="clickable" title="Toque para editar" data-id="${t.id}">
         <td>${fmtDate(t.date).slice(0, 5)}<span class="sub">${t.date.slice(0, 4)}</span></td>
-        <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}${isCardTx(t) ? `<span class="badge">💳 ${esc(store.cardOf(t).name)}</span>` : ''}${t.itens?.length ? `<span class="badge">🛒 ${t.itens.length} itens</span>` : ''}
+        <td>${esc(t.description || t.place || '—')}${t.source === 'nf' ? '<span class="badge">🧾 NF</span>' : t.source === 'extrato' ? '<span class="badge">🏦</span>' : ''}${isCardTx(t) ? `<span class="badge">💳 ${esc(store.cardOf(t).name)}</span>` : ''}${t.itens?.length ? `<span class="badge">🛒 ${t.itens.length} itens</span>` : ''}${t.recurring ? '<span class="badge">🔁</span>' : ''}${t.toConfirm ? '<span class="badge warn">a conferir</span>' : ''}${t.projected ? `<span class="badge warn">parcela prevista ${esc(t.installment || '')}</span>` : ''}
           <span class="sub">${esc([t.place && t.place !== t.description ? t.place : '', paidByLabel(t), t.payment, t.createdByName && store.backendKind === 'cloud' ? `lançado por ${t.createdByName}` : ''].filter(Boolean).join(' · '))}</span></td>
         <td class="col-cat">${esc(t.category)}</td>
         <td class="num ${t.type === 'entrada' ? 'pos' : ''}">${t.type === 'acerto' ? '🤝 ' : t.type === 'entrada' ? '+' : '−'}${money(valueOf(t))}${t.type === 'acerto' ? '<span class="sub">acerto (não conta)</span>' : ''}${t.type !== 'acerto' && Math.abs(valueOf(t) - t.amount) > 0.004 ? `<span class="sub">de ${money(t.amount)}</span>` : ''}<span class="sub only-mobile">${esc(t.category)}</span></td>
@@ -1694,12 +1755,68 @@ $('#form-delete').addEventListener('click', () => {
   resetForm();
   showTab('lista');
 });
-['#list-search', '#list-type', '#list-cat', '#list-person', '#list-payment'].forEach((s) => $(s).addEventListener('input', () => { listHideHouse = false; renderList(); }));
+['#list-search', '#list-type', '#list-cat', '#list-person', '#list-payment'].forEach((s) => $(s).addEventListener('input', () => { listHideHouse = false; listOnlyConfirm = false; renderList(); }));
+$('#list-confirm-show').addEventListener('click', () => { listOnlyConfirm = false; renderList(); });
 $('#list-house-show').addEventListener('click', () => { listHideHouse = false; renderList(); });
 
 // ---------- ajustes ----------
+function renderRecurring() {
+  const box = $('#recurring-list');
+  const rules = store.recurring;
+  box.innerHTML = rules.length
+    ? rules.map((r) => `<div class="cat-row rec-row" data-id="${esc(r.id)}">
+        <div style="flex:1;min-width:0"><b>${esc(r.description)}</b><span class="sub">${money(r.amount)} · todo dia ${r.day} · ${esc(r.category)} · ${esc(paidByLabel(r))}${r.active === false ? ' · <b>pausada</b>' : ''}</span></div>
+        <button class="btn small" data-act="amount" title="Mudar o valor estimado">R$</button>
+        <button class="btn small" data-act="toggle">${r.active === false ? 'Retomar' : 'Pausar'}</button>
+        <button class="btn small danger" data-act="del" aria-label="Remover">✕</button></div>`).join('')
+    : '<p class="hint" style="margin:0">Nenhuma conta fixa ainda. Ao lançar, marque “🔁 Repetir todo mês”.</p>';
+  // sugestões: contas do apê do mês passado que ainda não são fixas
+  const ref = new Date(); ref.setDate(1); ref.setMonth(ref.getMonth() - 1);
+  const prevKey = `${ref.getFullYear()}-${pad(ref.getMonth() + 1)}`;
+  const have = new Set(rules.map((r) => normalizeText(r.category + r.description)));
+  const sugg = store.transactions.filter((t) => t.type === 'gasto' && t.date.startsWith(prevKey) && !t.recurring
+    && store.groupOf(t.category) === 'Contas apê' && !have.has(normalizeText(t.category + (t.description || '').replace(/\s+\S+$/, ''))));
+  $('#recurring-sugg').innerHTML = sugg.length
+    ? `<h3>Sugestões (contas do apê de ${MONTHS_LONG[ref.getMonth()]})</h3>${sugg.map((t) => `<div class="cat-row"><span>${esc(t.description)} · ${money(t.amount)}</span><button class="btn small" data-sugg="${esc(t.id)}">+ fixa</button></div>`).join('')}`
+    : '';
+}
+$('#recurring-list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const id = b.closest('[data-id]').dataset.id;
+  const r = store.recurring.find((x) => x.id === id);
+  if (!r) return;
+  if (b.dataset.act === 'amount') {
+    const v = prompt(`Valor estimado de “${r.description}”:`, r.amount.toFixed(2).replace('.', ','));
+    const n = v ? Math.abs(parseMoney(v)) : NaN;
+    if (Number.isFinite(n) && n > 0) store.updateRecurring(id, { amount: Math.round(n * 100) / 100 });
+  } else if (b.dataset.act === 'toggle') {
+    store.updateRecurring(id, { active: r.active === false });
+  } else if (confirm(`Parar de lançar “${r.description}” todo mês? (os lançamentos já feitos continuam)`)) {
+    store.removeRecurring(id);
+  }
+  renderRecurring();
+});
+$('#recurring-sugg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-sugg]');
+  if (!b) return;
+  const t = store.transactions.find((x) => x.id === b.dataset.sugg);
+  if (!t) return;
+  // começa no mês seguinte ao da conta usada como modelo
+  const [y, m] = t.date.split('-').map(Number);
+  const next = new Date(y, m, 1, 12);
+  store.addRecurring({
+    type: 'gasto', description: (t.description || t.category).replace(/\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)$/i, ''),
+    category: t.category, amount: t.amount, day: Number(t.date.slice(8, 10)), paidBy: t.paidBy, payment: t.payment || '',
+    card: t.card || null, splitWith: t.splitWith || null, start: `${next.getFullYear()}-${pad(next.getMonth() + 1)}`,
+  });
+  runRecurring();
+  renderRecurring();
+});
+
 function renderSettings() {
   renderCard();
+  renderRecurring();
   $('#house-size').value = store.houseSize;
   renderPeople();
   $('#cat-new-group').innerHTML = options(GROUPS, 'Outras compras');
@@ -1817,7 +1934,13 @@ store.onChange(() => {
   }, 50);
 });
 
+/** Lança as contas fixas do mês (e de meses anteriores que faltarem). */
+function runRecurring() {
+  const n = store.generateRecurring(todayIso().slice(0, 7));
+  if (n) toast(`🔁 ${n} conta${n === 1 ? '' : 's'} fixa${n === 1 ? '' : 's'} lançada${n === 1 ? '' : 's'} para conferir.`);
+}
 function fixHouseSplit() {
+  setTimeout(runRecurring, 300);
   const removed = store.trimPlanilhaBefore('2026-07-01');
   const n = store.migrateHouseSplit(SPLIT, HOUSE);
   const msgs = [];
