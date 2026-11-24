@@ -34,9 +34,15 @@ salvos no próprio navegador, e dá para instalar na tela inicial do celular.
 
 **Painel**
 - Período por **semana, mês, ano** ou intervalo personalizado, com setas para navegar.
+- **O que precisa de atenção**: quem deve a quem (gastos de cartão não acertados),
+  fatura aberta de cada cartão com dias até fechar, gastos sem forma de pagamento e
+  gastos em “Outros gastos” — cada item abre a tela certa já filtrada.
+- Entradas, gastos e saldo **comparados ao período anterior** (se o período está em
+  andamento, até o mesmo dia — ex.: “▲ 12% vs outubro (até dia 24)”).
+- **Ritmo de gastos**: gasto acumulado dia a dia contra o período anterior, com
+  previsão de fechamento (“novembro deve fechar em ~R$ X”).
 - Entradas, gastos e saldo; balanço **por pessoa** (o que é “Dividido 50/50” conta
   metade para cada um).
-- Gráfico de entradas × gastos ao longo do período (por dia, semana ou mês).
 - Totais por grupo, como na planilha: **Contas apê, Mercado, Outras compras**, e
   ranking de gastos por categoria.
 

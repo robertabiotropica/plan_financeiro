@@ -51,9 +51,14 @@
       </div>
 
       <div class="kpis">
-        <div class="kpi k-in"><span>Entradas</span><strong id="kpi-in"></strong></div>
-        <div class="kpi k-out"><span>Gastos</span><strong id="kpi-out"></strong></div>
-        <div class="kpi k-bal"><span>Saldo</span><strong id="kpi-bal"></strong></div>
+        <div class="kpi k-in"><span>Entradas</span><strong id="kpi-in"></strong><small class="kpi-delta" id="kpi-in-d"></small></div>
+        <div class="kpi k-out"><span>Gastos</span><strong id="kpi-out"></strong><small class="kpi-delta" id="kpi-out-d"></small></div>
+        <div class="kpi k-bal"><span>Saldo</span><strong id="kpi-bal"></strong><small class="kpi-delta" id="kpi-bal-d"></small></div>
+      </div>
+
+      <div class="card">
+        <h2>O que precisa de atenção</h2>
+        <div id="alerts" class="alerts"></div>
       </div>
 
       <div class="card">
@@ -63,12 +68,14 @@
 
       <div class="card">
         <div class="card-head">
-          <h2>Entradas × Gastos</h2>
+          <h2>Ritmo de gastos</h2>
           <div class="legend">
-            <span><i class="sw sw-in"></i>Entradas</span>
-            <span><i class="sw sw-out"></i>Gastos</span>
+            <span><i class="sw sw-out"></i>Acumulado</span>
+            <span><i class="sw sw-prev"></i><span id="pace-prev-label">Anterior</span></span>
+            <span><i class="sw sw-proj"></i>Previsão</span>
           </div>
         </div>
+        <p class="pace-lead" id="pace-lead"></p>
         <div id="chart-time" class="chart"></div>
       </div>
 
@@ -270,6 +277,7 @@
           <select id="list-payment" aria-label="Forma de pagamento"><option value="">Pagamento</option></select>
         </div>
         <p class="hint">Mostrando o período selecionado no Painel: <b id="list-period"></b></p>
+        <p class="hint hidden" id="list-house-note">Ocultando as contas do apê. <button type="button" class="link" id="list-house-show">Mostrar também</button></p>
         <div class="table-wrap"><table class="tx-table" id="list-table"></table></div>
       </div>
     </section>

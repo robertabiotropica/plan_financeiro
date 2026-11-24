@@ -250,6 +250,20 @@ function renderDashboard() {
   $('#kpi-bal').textContent = money(bal);
   $('#kpi-bal').className = bal >= 0 ? 'pos' : 'neg';
 
+  // comparação com o período anterior (se o atual ainda não acabou, até o mesmo ponto)
+  const cmp = comparisonRange({ from, to });
+  const ptx = txInRange(cmp.from, cmp.to);
+  const pin = sum(ptx.filter((t) => t.type === 'entrada'));
+  const pout = sum(ptx.filter((t) => t.type === 'gasto'));
+  $('#kpi-in-d').innerHTML = deltaHtml(tin, pin, true, cmp.label);
+  $('#kpi-out-d').innerHTML = deltaHtml(tout, pout, false, cmp.label);
+  const dbal = bal - (pin - pout);
+  $('#kpi-bal-d').innerHTML = (pin || pout)
+    ? `<span class="${dbal >= 0 ? 'up-good' : 'up-bad'}">${dbal >= 0 ? '▲' : '▼'} ${money(Math.abs(dbal))}</span> ${esc(cmp.label)}`
+    : '';
+
+  renderAlerts(txs);
+
   // por pessoa
   const rows = store.people.map((p) => {
     const inn = entradas.reduce((s, t) => s + shareOf(t, p), 0);
@@ -268,68 +282,197 @@ function renderDashboard() {
   }));
   $('#groups').innerHTML = `<div class="groups">${groupTotals.map(({ g, v }) => `<div><span>${esc(g)}</span><strong>${money(v)}</strong></div>`).join('')}</div>`;
 
-  renderTimeChart();
+  renderPaceChart();
   renderCategoryChart(gastos, tout);
 }
 
-function renderTimeChart() {
-  const bs = buckets().map((b) => {
-    const txs = txInRange(b.from, b.to);
-    return {
-      ...b,
-      inn: txs.filter((t) => t.type === 'entrada').reduce((s, t) => s + ours(t), 0),
-      out: txs.filter((t) => t.type === 'gasto').reduce((s, t) => s + ours(t), 0),
-    };
-  });
-  const el = $('#chart-time');
-  const max = Math.max(0, ...bs.map((b) => Math.max(b.inn, b.out)));
-  if (!max) { el.innerHTML = '<p class="empty">Nenhum lançamento neste período.</p>'; return; }
+// ---------- comparação entre períodos ----------
+const todayIso = () => iso(new Date());
+const daysBetween = (a, b) => Math.round((fromIso(b) - fromIso(a)) / 86400000);
+/** Período anterior equivalente (semana/mês/ano anterior, ou mesmo tamanho para “Período”). */
+function previousRange({ from, to }) {
+  const a = fromIso(from);
+  if (period.mode === 'semana') return { from: iso(addDays(a, -7)), to: iso(addDays(a, -1)), name: 'semana anterior' };
+  if (period.mode === 'mes') {
+    const p = new Date(a.getFullYear(), a.getMonth() - 1, 1, 12);
+    return { from: iso(p), to: iso(new Date(p.getFullYear(), p.getMonth() + 1, 0, 12)), name: MONTHS_LONG[p.getMonth()] };
+  }
+  if (period.mode === 'ano') { const y = a.getFullYear() - 1; return { from: `${y}-01-01`, to: `${y}-12-31`, name: String(y) }; }
+  const len = daysBetween(from, to) + 1;
+  return { from: iso(addDays(a, -len)), to: iso(addDays(a, -1)), name: 'período anterior' };
+}
+/** Período anterior até o mesmo ponto, se o atual ainda está em andamento (comparação justa). */
+function comparisonRange(cur) {
+  const prev = previousRange(cur);
+  const today = todayIso();
+  if (today >= cur.from && today < cur.to) {
+    const elapsed = daysBetween(cur.from, today);
+    const cut = iso(addDays(fromIso(prev.from), elapsed));
+    const to = cut < prev.to ? cut : prev.to;
+    const until = period.mode === 'mes' ? `até dia ${fromIso(to).getDate()}` : period.mode === 'ano' ? `até ${fmtDate(to).slice(0, 5)}` : 'até o mesmo dia';
+    return { from: prev.from, to, label: `vs ${prev.name} (${until})` };
+  }
+  return { from: prev.from, to: prev.to, label: `vs ${prev.name}` };
+}
+/** “▲ 12% vs outubro”: verde quando é bom (entradas subindo, gastos caindo). */
+function deltaHtml(cur, prev, upIsGood, label) {
+  if (prev < 0.005) return cur > 0.005 ? `<span class="muted">sem dados ${esc(label)}</span>` : '';
+  const pct = ((cur - prev) / prev) * 100;
+  if (Math.abs(pct) < 0.5) return `<span class="muted">= igual ${esc(label)}</span>`;
+  const up = pct > 0;
+  const good = up === upIsGood;
+  return `<span class="${good ? 'up-good' : 'up-bad'}">${up ? '▲' : '▼'} ${Math.abs(pct).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%</span> ${esc(label)}`;
+}
 
-  const W = Math.max(280, Math.round(el.clientWidth || 640)); const H = 220; const L = 44; const R = 4; const T = 8; const B = 24;
+// ---------- pendências: o que precisa de atenção ----------
+let listPreset = null;       // filtros a aplicar na Lista ao abrir por um atalho
+let listHideHouse = false;   // atalho “sem forma de pagamento” esconde as contas do apê
+let fatFilterPreset = null;  // filtro “pessoa” a aplicar na fatura ao abrir por um atalho
+function renderAlerts(periodTxs) {
+  refreshOtherSpellings();
+  const items = [];
+  // 1) quem deve a quem (gastos de cartão ainda não acertados, de qualquer fatura)
+  const debts = new Map();
+  store.transactions.forEach((t) => {
+    const card = store.cardOf(t);
+    if (!card || t.settled) return;
+    debtsOf(t, card).forEach(([who, v]) => {
+      if (who === 'Casa (outros moradores)') return;
+      const k = `${who}→${card.owner}`;
+      const d = debts.get(k) || { who, owner: card.owner, v: 0, card, fat: '' };
+      d.v += v;
+      const f = faturaOf(t.date, card);
+      if (f > d.fat) { d.fat = f; d.card = card; }
+      debts.set(k, d);
+    });
+  });
+  [...debts.values()].filter((d) => d.v > 0.004).sort((a, b) => b.v - a.v).forEach((d) => {
+    items.push({ icon: '🤝', html: `<b>${esc(d.who)}</b> deve <b>${money(d.v)}</b> a ${esc(d.owner)}`, sub: 'gastos no cartão ainda não acertados',
+      go: () => { selectCard(d.card.id); fatura = d.fat; fatFilterPreset = d.who; showTab('cartao'); } });
+  });
+  // 2) fatura aberta de cada cartão
+  const today = todayIso();
+  store.cards.forEach((card) => {
+    const key = faturaOf(today, card);
+    const list = store.transactions.filter((t) => store.cardOf(t)?.id === card.id && faturaOf(t.date, card) === key);
+    if (!list.length && !store.transactions.some((t) => store.cardOf(t)?.id === card.id)) return;
+    const total = list.reduce((s, t) => s + t.amount, 0);
+    const close = faturaRange(key, card).to;
+    const left = daysBetween(today, close);
+    items.push({ icon: '💳', html: `<b>${esc(card.name)}</b> · fatura de ${MONTHS_LONG[Number(key.slice(5)) - 1]}: <b>${money(total)}</b> até agora`,
+      sub: left <= 0 ? 'fecha hoje' : `fecha em ${left} dia${left === 1 ? '' : 's'} (${fmtDate(close).slice(0, 5)})${left <= 3 ? ' — confira os lançamentos' : ''}`,
+      warn: left <= 3, go: () => { selectCard(card.id); fatura = key; showTab('cartao'); } });
+  });
+  // 3) lançamentos do período incompletos
+  const noPay = periodTxs.filter((t) => t.type === 'gasto' && !t.payment && store.groupOf(t.category) !== 'Contas apê').length;
+  if (noPay) items.push({ icon: '❓', html: `<b>${noPay}</b> gasto${noPay === 1 ? '' : 's'} sem forma de pagamento`, sub: 'neste período (fora as contas do apê) — toque para completar',
+    go: () => { listPreset = { payment: 'none', type: 'gasto', hideHouse: true }; showTab('lista'); } });
+  const noCat = periodTxs.filter((t) => t.type === 'gasto' && (!t.category || t.category === 'Outros gastos')).length;
+  if (noCat) items.push({ icon: '🏷️', html: `<b>${noCat}</b> gasto${noCat === 1 ? '' : 's'} em “Outros gastos”`, sub: 'categorizar deixa o painel mais certeiro',
+    go: () => { listPreset = { category: 'Outros gastos', type: 'gasto' }; showTab('lista'); } });
+
+  $('#alerts').innerHTML = items.length
+    ? items.map((it, i) => `<button type="button" class="alert-row${it.warn ? ' warn' : ''}" data-i="${i}">
+        <span class="alert-icon" aria-hidden="true">${it.icon}</span>
+        <span class="alert-text">${it.html}<small>${esc(it.sub)}</small></span><span class="alert-go" aria-hidden="true">›</span></button>`).join('')
+    : '<p class="empty" style="margin:0">✅ Tudo em dia: nada pendente.</p>';
+  $$('#alerts .alert-row').forEach((b) => b.addEventListener('click', () => items[Number(b.dataset.i)].go()));
+}
+
+// ---------- ritmo de gastos: acumulado vs período anterior + previsão ----------
+function renderPaceChart() {
+  const el = $('#chart-time');
+  const cur = periodRange();
+  const prev = previousRange(cur);
+  const today = todayIso();
+  const ongoing = today >= cur.from && today <= cur.to;
+  const monthly = period.mode === 'ano' || daysBetween(cur.from, cur.to) > 92;
+  // pontos (dias ou meses) do período atual, alinhados com os do anterior
+  const steps = [];
+  if (monthly) {
+    let a = fromIso(cur.from); let b = fromIso(prev.from);
+    while (iso(a) <= cur.to) {
+      const ea = new Date(a.getFullYear(), a.getMonth() + 1, 0, 12);
+      const eb = new Date(b.getFullYear(), b.getMonth() + 1, 0, 12);
+      steps.push({ to: iso(ea) > cur.to ? cur.to : iso(ea), pto: iso(eb) > prev.to ? prev.to : iso(eb), label: MONTHS[a.getMonth()], title: `${MONTHS_LONG[a.getMonth()]}` });
+      a = addDays(ea, 1); b = addDays(eb, 1);
+    }
+  } else {
+    const n = daysBetween(cur.from, cur.to) + 1;
+    for (let i = 0; i < n; i++) {
+      const d = addDays(fromIso(cur.from), i);
+      const pd = iso(addDays(fromIso(prev.from), i));
+      steps.push({ to: iso(d), pto: pd > prev.to ? null : pd, label: period.mode === 'semana' ? ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'][(d.getDay() + 6) % 7] : String(d.getDate()), title: fmtDate(iso(d)) });
+    }
+  }
+  const gastosAte = (from, to) => txInRange(from, to).filter((t) => t.type === 'gasto').reduce((s, t) => s + ours(t), 0);
+  const lastIdx = ongoing ? steps.findIndex((st) => st.to >= today) : steps.length - 1;
+  const curPts = steps.map((st, i) => (i <= lastIdx ? gastosAte(cur.from, st.to) : null));
+  const prevPts = steps.map((st) => (st.pto ? gastosAte(prev.from, st.pto) : null));
+  const prevTotal = gastosAte(prev.from, prev.to);
+  const curNow = curPts[lastIdx] ?? 0;
+
+  // previsão: o que falta do mês tende a se parecer com o que faltava no anterior (inclui contas fixas)
+  let projection = null;
+  if (ongoing && lastIdx < steps.length - 1) {
+    const prevAtSame = prevPts[lastIdx];
+    if (prevTotal > 0 && prevAtSame != null) projection = curNow + Math.max(0, prevTotal - prevAtSame);
+    // sem o período anterior, só arrisca a regra de três em semana/mês e com pelo menos 1/3 do período
+    else if (!monthly && lastIdx + 1 >= steps.length / 3) projection = (curNow / (lastIdx + 1)) * steps.length;
+  }
+  const curName = period.mode === 'mes' ? MONTHS_LONG[fromIso(cur.from).getMonth()]
+    : period.mode === 'semana' ? (ongoing ? 'esta semana' : `a semana de ${fmtDate(cur.from).slice(0, 5)}`)
+      : period.mode === 'ano' ? String(fromIso(cur.from).getFullYear()) : 'o período';
+  const lead = ongoing
+    ? (projection != null
+      ? `No ritmo atual, ${curName} deve fechar em <b>~${money(projection)}</b>${prevTotal > 0 ? ` (${prev.name} fechou em ${money(prevTotal)})` : ''}.`
+      : `Até agora: <b>${money(curNow)}</b>.`)
+    : `${curName[0].toUpperCase()}${curName.slice(1)} fechou em <b>${money(curNow)}</b>${prevTotal > 0 ? ` — ${deltaHtml(curNow, prevTotal, false, `vs ${prev.name}`)}` : ''}.`;
+  $('#pace-lead').innerHTML = lead;
+  $('#pace-prev-label').textContent = prev.name[0].toUpperCase() + prev.name.slice(1);
+
+  const max = Math.max(0, ...curPts.filter((v) => v != null), ...prevPts.filter((v) => v != null), projection || 0);
+  if (!max) { el.innerHTML = '<p class="empty">Nenhum gasto neste período nem no anterior.</p>'; return; }
+
+  const W = Math.max(280, Math.round(el.clientWidth || 640)); const H = 210; const L = 44; const R = 10; const T = 10; const B = 24;
   const step = niceStep(max / 4);
   const top = Math.ceil(max / step) * step;
   const y = (v) => T + (H - T - B) * (1 - v / top);
-  const slot = (W - L - R) / bs.length;
-  const gap = 2;
-  const barW = Math.max(2, Math.min(22, (slot * 0.7 - gap) / 2));
-  const labelEvery = Math.ceil(bs.length / 12);
+  const n = steps.length;
+  const x = (i) => L + (n === 1 ? (W - L - R) / 2 : ((W - L - R) * i) / (n - 1));
+  const path = (pts) => pts.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean).map((p, i) => `${i ? 'L' : 'M'}${p}`).join(' ');
+  const labelEvery = Math.ceil(n / (W < 420 ? 7 : 12));
 
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Entradas e gastos por período">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Gasto acumulado do período comparado ao anterior">`;
   for (let v = 0; v <= top + 1e-9; v += step) {
     svg += `<line class="grid-line" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`;
     svg += `<text class="axis-label" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${moneyShort(v)}</text>`;
   }
-  bs.forEach((b, i) => {
-    const cx = L + slot * i + slot / 2;
-    const bar = (v, x, cls) => {
-      if (v <= 0) return '';
-      const h = Math.max(1, y(0) - y(v));
-      const r = Math.min(4, barW / 2, h);
-      // topo arredondado, base reta no eixo
-      return `<path class="${cls}" d="M${x},${y(0)} V${y(0) - h + r} q0,-${r} ${r},-${r} H${x + barW - r} q${r},0 ${r},${r} V${y(0)} Z"/>`;
-    };
-    svg += bar(b.inn, cx - barW - gap / 2, 'bar-in');
-    svg += bar(b.out, cx + gap / 2, 'bar-out');
-    if (i % labelEvery === 0) svg += `<text class="axis-label" x="${cx}" y="${H - 6}" text-anchor="middle">${esc(b.label)}</text>`;
-    svg += `<rect class="hit" data-i="${i}" x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B}"/>`;
-  });
+  steps.forEach((st, i) => { if (i % labelEvery === 0 || i === n - 1) svg += `<text class="axis-label" x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(st.label)}</text>`; });
+  svg += `<path class="line-prev" d="${path(prevPts)}"/>`;
+  if (projection != null) svg += `<path class="line-proj" d="M${x(lastIdx)},${y(curNow)} L${x(n - 1)},${y(projection)}"/><circle class="dot-proj" cx="${x(n - 1)}" cy="${y(projection)}" r="4"/>`;
+  svg += `<path class="line-cur" d="${path(curPts)}"/>`;
+  if (lastIdx >= 0) svg += `<circle class="dot-cur" cx="${x(lastIdx)}" cy="${y(curNow)}" r="5"/>`;
+  svg += `<line class="crosshair" id="pace-cross" x1="0" x2="0" y1="${T}" y2="${H - B}" style="display:none"/>`;
+  svg += `<rect class="hit" id="pace-hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}"/>`;
   svg += '</svg>';
   el.innerHTML = svg;
 
   const tip = $('#tooltip');
-  $$('.hit', el).forEach((r) => {
-    const show = (ev) => {
-      const b = bs[Number(r.dataset.i)];
-      tip.innerHTML = `<b>${esc(b.title)}</b><span class="sw sw-in"></span>Entradas ${money(b.inn)}<br><span class="sw sw-out"></span>Gastos ${money(b.out)}<br>Saldo ${money(b.inn - b.out)}`;
-      tip.style.display = 'block';
-      const x = Math.min(ev.clientX + 12, window.innerWidth - tip.offsetWidth - 8);
-      tip.style.left = `${x}px`;
-      tip.style.top = `${ev.clientY + 12}px`;
-    };
-    r.addEventListener('pointermove', show);
-    r.addEventListener('pointerdown', show);
-    r.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
-  });
+  const hit = $('#pace-hit'); const cross = $('#pace-cross');
+  const show = (ev) => {
+    const r = hit.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.round(((ev.clientX - r.left) / r.width) * (n - 1))));
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.style.display = '';
+    const c = curPts[i]; const pv = prevPts[i];
+    tip.innerHTML = `<b>${esc(steps[i].title)}</b><span class="sw sw-out"></span>Acumulado: ${c != null ? money(c) : '—'}<br><span class="sw sw-prev"></span>${esc(prev.name)}: ${pv != null ? money(pv) : '—'}${i === n - 1 && projection != null ? `<br>Previsão: ~${money(projection)}` : ''}`;
+    tip.style.display = 'block';
+    tip.style.left = `${Math.min(ev.clientX + 12, window.innerWidth - tip.offsetWidth - 8)}px`;
+    tip.style.top = `${ev.clientY + 12}px`;
+  };
+  hit.addEventListener('pointermove', show);
+  hit.addEventListener('pointerdown', show);
+  hit.addEventListener('pointerleave', () => { tip.style.display = 'none'; cross.style.display = 'none'; });
 }
 function niceStep(raw) {
   if (raw <= 0) return 1;
@@ -859,7 +1002,8 @@ function renderFatura() {
 
   // filtro por pessoa e tabela
   const filterSel = $('#fat-filter');
-  const cur = filterSel.value;
+  const cur = fatFilterPreset ?? filterSel.value;
+  fatFilterPreset = null;
   filterSel.innerHTML = `<option value="">Todos</option>${rows.map(([n]) => `<option ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}`;
   const list = filterSel.value ? all.filter((t) => shares(t).some(([n]) => n === filterSel.value)) : all;
   const payerOpts = (t) => {
@@ -1278,9 +1422,13 @@ function renderList() {
   refreshOtherSpellings();
   const { from, to } = periodRange();
   $('#list-period').textContent = periodLabel();
+  $('#list-house-note').classList.toggle('hidden', !listHideHouse);
   const cats = [...new Set(store.state.categories.map((c) => c.name))];
   const catSel = $('#list-cat');
-  const cur = catSel.value;
+  const preset = listPreset;
+  listPreset = null;
+  if (preset) { $('#list-search').value = ''; $('#list-type').value = preset.type || ''; $('#list-person').value = ''; listHideHouse = !!preset.hideHouse; }
+  const cur = preset ? (preset.category || '') : catSel.value;
   catSel.innerHTML = `<option value="">Categorias</option>${options(cats, cur)}`;
   const q = $('#list-search').value.trim().toLowerCase();
   const type = $('#list-type').value;
@@ -1304,7 +1452,7 @@ function renderList() {
 
   // filtro “Pagamento”: formas usadas no período; no crédito, cada cartão separado (se houver mais de um)
   const paySel = $('#list-payment');
-  const curPay = paySel.value;
+  const curPay = preset ? (preset.payment || '') : paySel.value;
   const payKey = (t) => (t.payment ? `pay:${t.payment}` : 'none');
   const order = (x) => (PAYMENTS.indexOf(x) === -1 ? 99 : PAYMENTS.indexOf(x));
   const usedPays = [...new Set([...inPeriod.map((t) => t.payment).filter(Boolean),
@@ -1325,6 +1473,7 @@ function renderList() {
     .filter((t) => !catSel.value || t.category === catSel.value)
     .filter((t) => !who || shareOf(t, who) > 0.004)
     .filter(matchPay)
+    .filter((t) => !listHideHouse || store.groupOf(t.category) !== 'Contas apê')
     .filter((t) => !q || [t.description, t.place, t.category, t.note, t.paidBy, (t.nf?.itens || t.itens || []).map((i) => i.descricao).join(' ')]
       .join(' ').toLowerCase().includes(q))
     .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
@@ -1354,7 +1503,8 @@ $('#form-delete').addEventListener('click', () => {
   resetForm();
   showTab('lista');
 });
-['#list-search', '#list-type', '#list-cat', '#list-person', '#list-payment'].forEach((s) => $(s).addEventListener('input', renderList));
+['#list-search', '#list-type', '#list-cat', '#list-person', '#list-payment'].forEach((s) => $(s).addEventListener('input', () => { listHideHouse = false; renderList(); }));
+$('#list-house-show').addEventListener('click', () => { listHideHouse = false; renderList(); });
 
 // ---------- ajustes ----------
 function renderSettings() {
@@ -1447,7 +1597,7 @@ $('#wipe').addEventListener('click', () => {
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if ($('#tab-painel').classList.contains('active')) renderTimeChart(); }, 150);
+  resizeTimer = setTimeout(() => { if ($('#tab-painel').classList.contains('active')) renderPaceChart(); }, 150);
 });
 // Quando os dados mudam (outro celular lançou, troca de conta…), redesenha sem apagar o que está sendo digitado.
 let changeTimer;
